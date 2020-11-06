@@ -1,6 +1,6 @@
 // +build !integration
 
-package main
+package exporter
 
 import (
 	"github.com/prometheus/client_golang/prometheus"

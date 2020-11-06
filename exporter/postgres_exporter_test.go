@@ -1,6 +1,6 @@
 // +build !integration
 
-package main
+package exporter
 
 import (
 	"io/ioutil"
@@ -111,7 +111,7 @@ func (s *FunctionalSuite) TestEnvironmentSettingWithSecretsFiles(c *C) {
 
 	var expected = "postgresql://custom_username$&+,%2F%3A;=%3F%40:custom_password$&+,%2F%3A;=%3F%40@localhost:5432/?sslmode=disable"
 
-	dsn := getDataSources()
+	dsn := GetDataSources()
 	if len(dsn) == 0 {
 		c.Errorf("Expected one data source, zero found")
 	}
@@ -127,7 +127,7 @@ func (s *FunctionalSuite) TestEnvironmentSettingWithDns(c *C) {
 	c.Assert(err, IsNil)
 	defer UnsetEnvironment(c, "DATA_SOURCE_NAME")
 
-	dsn := getDataSources()
+	dsn := GetDataSources()
 	if len(dsn) == 0 {
 		c.Errorf("Expected one data source, zero found")
 	}
@@ -151,7 +151,7 @@ func (s *FunctionalSuite) TestEnvironmentSettingWithDnsAndSecrets(c *C) {
 	c.Assert(err, IsNil)
 	defer UnsetEnvironment(c, "DATA_SOURCE_PASS")
 
-	dsn := getDataSources()
+	dsn := GetDataSources()
 	if len(dsn) == 0 {
 		c.Errorf("Expected one data source, zero found")
 	}
