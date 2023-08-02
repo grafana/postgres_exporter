@@ -1,9 +1,9 @@
 ---
 exclusions:
   panel-units-rule:
-    reason: Ignoring due to unrelated change to docs generation. This should be resolved in #2762 by either elaborating on this reason, or resolving the underlying issue.
+    reason: Ignoring so far, need to address this in future
   panel-title-description-rule:
-    reason: Ignoring due to unrelated change to docs generation. This should be resolved in #2762 by either elaborating on this reason, or resolving the underlying issue.
+    reason: Ignoring so far, need to address this in future
   panel-datasource-rule:
     reason: "Loki datasource variable is being named as loki_datasource now while linter expects 'datasource'"
   template-datasource-rule:
