@@ -1358,7 +1358,7 @@
         "datasource": {
           "uid": "$datasource"
         },
-        "definition": "",
+        "definition": "label_values(pg_up{job=~\"$job\"},instance)",
         "hide": 0,
         "includeAll": true,
         "label": "instance",
@@ -1383,7 +1383,7 @@
         "datasource": {
           "uid": "$datasource"
         },
-        "definition": "label_values(pg_stat_database_tup_fetched{instance=~\"$instance\",datname!~\"template.*|postgres\"},datname)",
+        "definition": "label_values(pg_stat_database_tup_fetched{job=~\"$job\",instance=~\"$instance\",datname!~\"template.*|postgres\"},datname)",
         "hide": 0,
         "includeAll": true,
         "label": "db",
@@ -1391,7 +1391,7 @@
         "name": "db",
         "options": [],
         "query": {
-          "query": "label_values(pg_stat_database_tup_fetched{instance=~\"$instance\",datname!~\"template.*|postgres\"},datname)",
+          "query": "label_values(pg_stat_database_tup_fetched{job=~\"$job\",instance=~\"$instance\",datname!~\"template.*|postgres\"},datname)",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
