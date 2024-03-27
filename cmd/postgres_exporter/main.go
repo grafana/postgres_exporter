@@ -49,7 +49,9 @@ var (
 	excludeDatabases       = kingpin.Flag("exclude-databases", "A list of databases to remove when autoDiscoverDatabases is enabled (DEPRECATED)").Default("").Envar("PG_EXPORTER_EXCLUDE_DATABASES").String()
 	includeDatabases       = kingpin.Flag("include-databases", "A list of databases to include when autoDiscoverDatabases is enabled (DEPRECATED)").Default("").Envar("PG_EXPORTER_INCLUDE_DATABASES").String()
 	metricPrefix           = kingpin.Flag("metric-prefix", "A metric prefix can be used to have non-default (not \"pg\") prefixes for each of the metrics").Default("pg").Envar("PG_EXPORTER_METRIC_PREFIX").String()
-	logger                 = promslog.NewNopLogger()
+
+	// rootFallbackLogger is used when we cannot use the regular logger in this fork. Under normal operations, there shouldn't be anything logged using this.
+	rootFallbackLogger = log.NewLogfmtLogger(os.Stderr)
 )
 
 // Metric name parts.
@@ -67,43 +69,43 @@ const (
 	serverLabelName = "server"
 )
 
+// TODO(thampiotr): consider removing this
 func main() {
 	kingpin.Version(version.Print(exporterName))
 	promslogConfig := &promslog.Config{}
 	flag.AddFlags(kingpin.CommandLine, promslogConfig)
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
-	logger = promslog.New(promslogConfig)
 
 	if *onlyDumpMaps {
 		dumpMaps()
 		return
 	}
 
-	if err := c.ReloadConfig(*configFile, logger); err != nil {
+	if err := c.ReloadConfig(*configFile, rootFallbackLogger); err != nil {
 		// This is not fatal, but it means that auth must be provided for every dsn.
-		logger.Warn("Error loading config", "err", err)
+		level.Warn(rootFallbackLogger).Log("msg", "Error loading config", "err", err)
 	}
 
 	dsns, err := getDataSources()
 	if err != nil {
-		logger.Error("Failed reading data sources", "err", err.Error())
+		level.Error(rootFallbackLogger).Log("msg", "Failed reading data sources", "err", err.Error())
 		os.Exit(1)
 	}
 
 	excludedDatabases := strings.Split(*excludeDatabases, ",")
-	logger.Info("Excluded databases", "databases", fmt.Sprintf("%v", excludedDatabases))
+	rootFallbackLogger.Log("msg", "Excluded databases", "databases", fmt.Sprintf("%v", excludedDatabases))
 
 	if *queriesPath != "" {
-		logger.Warn("The extended queries.yaml config is DEPRECATED", "file", *queriesPath)
+		level.Warn(rootFallbackLogger).Log("msg", "The extended queries.yaml config is DEPRECATED", "file", *queriesPath)
 	}
 
 	if *autoDiscoverDatabases || *excludeDatabases != "" || *includeDatabases != "" {
-		logger.Warn("Scraping additional databases via auto discovery is DEPRECATED")
+		level.Warn(rootFallbackLogger).Log("msg", "Scraping additional databases via auto discovery is DEPRECATED")
 	}
 
 	if *constantLabelsList != "" {
-		logger.Warn("Constant labels on all metrics is DEPRECATED")
+		level.Warn(rootFallbackLogger).Log("msg", "Constant labels on all metrics is DEPRECATED")
 	}
 
 	opts := []ExporterOpt{
@@ -132,13 +134,13 @@ func main() {
 	}
 
 	pe, err := collector.NewPostgresCollector(
-		logger,
+		rootFallbackLogger,
 		excludedDatabases,
 		dsn,
 		[]string{},
 	)
 	if err != nil {
-		logger.Warn("Failed to create PostgresCollector", "err", err.Error())
+		level.Warn(rootFallbackLogger).Log("msg", "Failed to create PostgresCollector", "err", err.Error())
 	} else {
 		defer pe.Close()
 		prometheus.MustRegister(pe)
@@ -160,17 +162,17 @@ func main() {
 		}
 		landingPage, err := web.NewLandingPage(landingConfig)
 		if err != nil {
-			logger.Error("error creating landing page", "err", err)
+			level.Error(rootFallbackLogger).Log("err", err)
 			os.Exit(1)
 		}
 		http.Handle("/", landingPage)
 	}
 
-	http.HandleFunc("/probe", handleProbe(logger, excludedDatabases))
+	http.HandleFunc("/probe", handleProbe(rootFallbackLogger, excludedDatabases))
 
 	srv := &http.Server{}
-	if err := web.ListenAndServe(srv, webConfig, logger); err != nil {
-		logger.Error("Error running HTTP server", "err", err)
+	if err := web.ListenAndServe(srv, webConfig, rootFallbackLogger); err != nil {
+		level.Error(rootFallbackLogger).Log("msg", "Error running HTTP server", "err", err)
 		os.Exit(1)
 	}
 }
