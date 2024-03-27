@@ -16,6 +16,7 @@ package postgres_exporter
 import (
 	"errors"
 	"fmt"
+	"github.com/go-kit/log"
 
 	"github.com/blang/semver/v4"
 	"github.com/go-kit/log/level"
@@ -156,7 +157,7 @@ var queryOverrides = map[string][]OverrideQuery{
 
 // Convert the query override file to the version-specific query override file
 // for the exporter.
-func makeQueryOverrideMap(pgVersion semver.Version, queryOverrides map[string][]OverrideQuery) map[string]string {
+func makeQueryOverrideMap(pgVersion semver.Version, queryOverrides map[string][]OverrideQuery, logger log.Logger) map[string]string {
 	resultMap := make(map[string]string)
 	for name, overrideDef := range queryOverrides {
 		// Find a matching semver. We make it an error to have overlapping
@@ -178,7 +179,7 @@ func makeQueryOverrideMap(pgVersion semver.Version, queryOverrides map[string][]
 	return resultMap
 }
 
-func parseUserQueries(content []byte) (map[string]intermediateMetricMap, map[string]string, error) {
+func parseUserQueries(content []byte, logger log.Logger) (map[string]intermediateMetricMap, map[string]string, error) {
 	var userQueries UserQueries
 
 	err := yaml.Unmarshal(content, &userQueries)
@@ -232,20 +233,20 @@ func parseUserQueries(content []byte) (map[string]intermediateMetricMap, map[str
 // TODO: test code for all cu.
 // TODO: the YAML this supports is "non-standard" - we should move away from it.
 func addQueries(content []byte, pgVersion semver.Version, server *Server) error {
-	metricMaps, newQueryOverrides, err := parseUserQueries(content)
+	metricMaps, newQueryOverrides, err := parseUserQueries(content, server.logger)
 	if err != nil {
 		return err
 	}
 	// Convert the loaded metric map into exporter representation
-	partialExporterMap := makeDescMap(pgVersion, server.labels, metricMaps)
+	partialExporterMap := makeDescMap(pgVersion, server.labels, metricMaps, server.logger)
 
 	// Merge the two maps (which are now quite flatteend)
 	for k, v := range partialExporterMap {
 		_, found := server.metricMap[k]
 		if found {
-			level.Debug(logger).Log("msg", "Overriding metric from user YAML file", "metric", k)
+			level.Debug(server.logger).Log("msg", "Overriding metric from user YAML file", "metric", k)
 		} else {
-			level.Debug(logger).Log("msg", "Adding new metric from user YAML file", "metric", k)
+			level.Debug(server.logger).Log("msg", "Adding new metric from user YAML file", "metric", k)
 		}
 		server.metricMap[k] = v
 	}
@@ -254,9 +255,9 @@ func addQueries(content []byte, pgVersion semver.Version, server *Server) error 
 	for k, v := range newQueryOverrides {
 		_, found := server.queryOverrides[k]
 		if found {
-			level.Debug(logger).Log("msg", "Overriding query override from user YAML file", "query_override", k)
+			level.Debug(server.logger).Log("msg", "Overriding query override from user YAML file", "query_override", k)
 		} else {
-			level.Debug(logger).Log("msg", "Adding new query override from user YAML file", "query_override", k)
+			level.Debug(server.logger).Log("msg", "Adding new query override from user YAML file", "query_override", k)
 		}
 		server.queryOverrides[k] = v
 	}

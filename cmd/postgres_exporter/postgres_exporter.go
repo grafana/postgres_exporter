@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/blang/semver/v4"
+	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -261,7 +262,7 @@ var builtinMetricMaps = map[string]intermediateMetricMap{
 }
 
 // Turn the MetricMap column mapping into a prometheus descriptor mapping.
-func makeDescMap(pgVersion semver.Version, serverLabels prometheus.Labels, metricMaps map[string]intermediateMetricMap) map[string]MetricMapNamespace {
+func makeDescMap(pgVersion semver.Version, serverLabels prometheus.Labels, metricMaps map[string]intermediateMetricMap, logger log.Logger) map[string]MetricMapNamespace {
 	var metricMap = make(map[string]MetricMapNamespace)
 
 	for namespace, intermediateMappings := range metricMaps {
@@ -423,6 +424,7 @@ type Exporter struct {
 	// servers are used to allow re-using the DB connection between scrapes.
 	// servers contains metrics map and query overrides.
 	servers *Servers
+	logger  log.Logger
 }
 
 // ExporterOpt configures Exporter.
@@ -479,6 +481,12 @@ func WithConstantLabels(s string) ExporterOpt {
 	}
 }
 
+func WithLogger(logger log.Logger) ExporterOpt {
+	return func(e *Exporter) {
+		e.logger = logger
+	}
+}
+
 func parseConstLabels(s string) prometheus.Labels {
 	labels := make(prometheus.Labels)
 
@@ -491,7 +499,7 @@ func parseConstLabels(s string) prometheus.Labels {
 	for _, p := range parts {
 		keyValue := strings.Split(strings.TrimSpace(p), "=")
 		if len(keyValue) != 2 {
-			level.Error(logger).Log(`Wrong constant labels format, should be "key=value"`, "input", p)
+			level.Error(rootFallbackLogger).Log(`Wrong constant labels format, should be "key=value"`, "input", p)
 			continue
 		}
 		key := strings.TrimSpace(keyValue[0])
@@ -510,6 +518,7 @@ func NewExporter(dsn []string, opts ...ExporterOpt) *Exporter {
 	e := &Exporter{
 		dsn:               dsn,
 		builtinMetricMaps: builtinMetricMaps,
+		logger:            log.NewNopLogger(), // Can override with WithLogger option
 	}
 
 	for _, opt := range opts {
@@ -517,7 +526,7 @@ func NewExporter(dsn []string, opts ...ExporterOpt) *Exporter {
 	}
 
 	e.setupInternalMetrics()
-	e.servers = NewServers(ServerWithLabels(e.constantLabels))
+	e.servers = NewServers(ServerWithLabels(e.constantLabels), ServerWithLogger(e.logger))
 
 	return e
 }
@@ -581,7 +590,7 @@ func newDesc(subsystem, name, help string, labels prometheus.Labels) *prometheus
 	)
 }
 
-func checkPostgresVersion(db *sql.DB, server string) (semver.Version, string, error) {
+func checkPostgresVersion(db *sql.DB, server string, logger log.Logger) (semver.Version, string, error) {
 	level.Debug(logger).Log("msg", "Querying PostgreSQL version", "server", server)
 	versionRow := db.QueryRow("SELECT version();")
 	var versionString string
@@ -599,24 +608,24 @@ func checkPostgresVersion(db *sql.DB, server string) (semver.Version, string, er
 
 // Check and update the exporters query maps if the version has changed.
 func (e *Exporter) checkMapVersions(ch chan<- prometheus.Metric, server *Server) error {
-	semanticVersion, versionString, err := checkPostgresVersion(server.db, server.String())
+	semanticVersion, versionString, err := checkPostgresVersion(server.db, server.String(), server.logger)
 	if err != nil {
 		return fmt.Errorf("Error fetching version string on %q: %v", server, err)
 	}
 
 	if !e.disableDefaultMetrics && semanticVersion.LT(lowestSupportedVersion) {
-		level.Warn(logger).Log("msg", "PostgreSQL version is lower than our lowest supported version", "server", server, "version", semanticVersion, "lowest_supported_version", lowestSupportedVersion)
+		level.Warn(server.logger).Log("msg", "PostgreSQL version is lower than our lowest supported version", "server", server, "version", semanticVersion, "lowest_supported_version", lowestSupportedVersion)
 	}
 
 	// Check if semantic version changed and recalculate maps if needed.
 	if semanticVersion.NE(server.lastMapVersion) || server.metricMap == nil {
-		level.Info(logger).Log("msg", "Semantic version changed", "server", server, "from", server.lastMapVersion, "to", semanticVersion)
+		level.Info(server.logger).Log("msg", "Semantic version changed", "server", server, "from", server.lastMapVersion, "to", semanticVersion)
 		server.mappingMtx.Lock()
 
 		// Get Default Metrics only for master database
 		if !e.disableDefaultMetrics && server.master {
-			server.metricMap = makeDescMap(semanticVersion, server.labels, e.builtinMetricMaps)
-			server.queryOverrides = makeQueryOverrideMap(semanticVersion, queryOverrides)
+			server.metricMap = makeDescMap(semanticVersion, server.labels, e.builtinMetricMaps, server.logger)
+			server.queryOverrides = makeQueryOverrideMap(semanticVersion, queryOverrides, server.logger)
 		} else {
 			server.metricMap = make(map[string]MetricMapNamespace)
 			server.queryOverrides = make(map[string]string)
@@ -631,13 +640,13 @@ func (e *Exporter) checkMapVersions(ch chan<- prometheus.Metric, server *Server)
 			// Calculate the hashsum of the useQueries
 			userQueriesData, err := os.ReadFile(e.userQueriesPath)
 			if err != nil {
-				level.Error(logger).Log("msg", "Failed to reload user queries", "path", e.userQueriesPath, "err", err)
+				level.Error(server.logger).Log("msg", "Failed to reload user queries", "path", e.userQueriesPath, "err", err)
 				e.userQueriesError.WithLabelValues(e.userQueriesPath, "").Set(1)
 			} else {
 				hashsumStr := fmt.Sprintf("%x", sha256.Sum256(userQueriesData))
 
 				if err := addQueries(userQueriesData, semanticVersion, server); err != nil {
-					level.Error(logger).Log("msg", "Failed to reload user queries", "path", e.userQueriesPath, "err", err)
+					level.Error(server.logger).Log("msg", "Failed to reload user queries", "path", e.userQueriesPath, "err", err)
 					e.userQueriesError.WithLabelValues(e.userQueriesPath, hashsumStr).Set(1)
 				} else {
 					// Mark user queries as successfully loaded
@@ -679,7 +688,7 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) {
 		if err := e.scrapeDSN(ch, dsn); err != nil {
 			errorsCount++
 
-			level.Error(logger).Log("err", err)
+			level.Error(e.logger).Log("err", err)
 
 			if _, ok := err.(*ErrorConnectToServer); ok {
 				connectionErrorsCount++

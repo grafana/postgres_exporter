@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/blang/semver/v4"
+	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -43,6 +44,7 @@ type Server struct {
 	// Currently cached metrics
 	metricCache map[string]cachedMetrics
 	cacheMtx    sync.Mutex
+	logger      log.Logger
 }
 
 // ServerOpt configures a server.
@@ -54,6 +56,12 @@ func ServerWithLabels(labels prometheus.Labels) ServerOpt {
 		for k, v := range labels {
 			s.labels[k] = v
 		}
+	}
+}
+
+func ServerWithLogger(logger log.Logger) ServerOpt {
+	return func(s *Server) {
+		s.logger = logger
 	}
 }
 
@@ -71,8 +79,6 @@ func NewServer(dsn string, opts ...ServerOpt) (*Server, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	level.Info(logger).Log("msg", "Established new database connection", "fingerprint", fingerprint)
-
 	s := &Server{
 		db:     db,
 		master: false,
@@ -80,11 +86,14 @@ func NewServer(dsn string, opts ...ServerOpt) (*Server, error) {
 			serverLabelName: fingerprint,
 		},
 		metricCache: make(map[string]cachedMetrics),
+		logger:      log.NewNopLogger(),
 	}
 
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	level.Info(s.logger).Log("msg", "Established new database connection", "fingerprint", fingerprint)
 
 	return s, nil
 }
@@ -98,7 +107,7 @@ func (s *Server) Close() error {
 func (s *Server) Ping() error {
 	if err := s.db.Ping(); err != nil {
 		if cerr := s.Close(); cerr != nil {
-			level.Error(logger).Log("msg", "Error while closing non-pinging DB connection", "server", s, "err", cerr)
+			level.Error(s.logger).Log("msg", "Error while closing non-pinging DB connection", "server", s, "err", cerr)
 		}
 		return err
 	}
@@ -184,7 +193,7 @@ func (s *Servers) Close() {
 	defer s.m.Unlock()
 	for _, server := range s.servers {
 		if err := server.Close(); err != nil {
-			level.Error(logger).Log("msg", "Failed to close connection", "server", server, "err", err)
+			level.Error(server.logger).Log("msg", "Failed to close connection", "server", server, "err", err)
 		}
 	}
 }

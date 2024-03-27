@@ -190,10 +190,10 @@ func queryNamespaceMappings(ch chan<- prometheus.Metric, server *Server) map[str
 	scrapeStart := time.Now()
 
 	for namespace, mapping := range server.metricMap {
-		level.Debug(logger).Log("msg", "Querying namespace", "namespace", namespace)
+		level.Debug(server.logger).Log("msg", "Querying namespace", "namespace", namespace)
 
 		if mapping.master && !server.master {
-			level.Debug(logger).Log("msg", "Query skipped...")
+			level.Debug(server.logger).Log("msg", "Query skipped...")
 			continue
 		}
 
@@ -202,7 +202,7 @@ func queryNamespaceMappings(ch chan<- prometheus.Metric, server *Server) map[str
 			serVersion, _ := semver.Parse(server.lastMapVersion.String())
 			runServerRange, _ := semver.ParseRange(server.runonserver)
 			if !runServerRange(serVersion) {
-				level.Debug(logger).Log("msg", "Query skipped for this database version", "version", server.lastMapVersion.String(), "target_version", server.runonserver)
+				level.Debug(server.logger).Log("msg", "Query skipped for this database version", "version", server.lastMapVersion.String(), "target_version", server.runonserver)
 				continue
 			}
 		}
@@ -233,12 +233,12 @@ func queryNamespaceMappings(ch chan<- prometheus.Metric, server *Server) map[str
 		// Serious error - a namespace disappeared
 		if err != nil {
 			namespaceErrors[namespace] = err
-			level.Info(logger).Log("err", err)
+			level.Info(server.logger).Log("err", err)
 		}
 		// Non-serious errors - likely version or parsing problems.
 		if len(nonFatalErrors) > 0 {
 			for _, err := range nonFatalErrors {
-				level.Info(logger).Log("err", err)
+				level.Info(server.logger).Log("err", err)
 			}
 		}
 
