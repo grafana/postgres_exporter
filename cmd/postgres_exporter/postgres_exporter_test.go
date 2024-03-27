@@ -14,7 +14,7 @@
 //go:build !integration
 // +build !integration
 
-package main
+package postgres_exporter
 
 import (
 	"math"
