@@ -67,20 +67,9 @@ type collectorConfig struct {
 }
 
 func registerCollector(name string, isDefaultEnabled bool, createFunc func(collectorConfig) (Collector, error)) {
-	var helpDefaultState string
-	if isDefaultEnabled {
-		helpDefaultState = "enabled"
-	} else {
-		helpDefaultState = "disabled"
-	}
-
-	// Create flag for this collector
-	flagName := fmt.Sprintf("collector.%s", name)
-	flagHelp := fmt.Sprintf("Enable the %s collector (default: %s).", name, helpDefaultState)
-	defaultValue := fmt.Sprintf("%v", isDefaultEnabled)
-
-	flag := kingpin.Flag(flagName, flagHelp).Default(defaultValue).Action(collectorFlagAction(name)).Bool()
-	collectorState[name] = flag
+	collectorFlagAction(name)
+	local := isDefaultEnabled
+	collectorState[name] = &local
 
 	// Register the create function for this collector
 	factories[name] = createFunc
@@ -97,7 +86,7 @@ type PostgresCollector struct {
 type Option func(*PostgresCollector) error
 
 // NewPostgresCollector creates a new PostgresCollector.
-func NewPostgresCollector(logger log.Logger, excludeDatabases []string, dsn string, filters []string, options ...Option) (*PostgresCollector, error) {
+func NewPostgresCollector(logger log.Logger, excludeDatabases []string, dsn string, enabledCollectors []string, options ...Option) (*PostgresCollector, error) {
 	p := &PostgresCollector{
 		logger: logger,
 	}
@@ -109,24 +98,27 @@ func NewPostgresCollector(logger log.Logger, excludeDatabases []string, dsn stri
 		}
 	}
 
-	f := make(map[string]bool)
-	for _, filter := range filters {
-		enabled, exist := collectorState[filter]
-		if !exist {
-			return nil, fmt.Errorf("missing collector: %s", filter)
+	collectorsToStart := map[string]struct{}{}
+	if len(enabledCollectors) == 0 {
+		for name, enabledByDefault := range collectorState {
+			if *enabledByDefault {
+				collectorsToStart[name] = struct{}{}
+			}
 		}
-		if !*enabled {
-			return nil, fmt.Errorf("disabled collector: %s", filter)
+	} else {
+		for _, name := range enabledCollectors {
+			_, exist := collectorState[name]
+			if !exist {
+				return nil, fmt.Errorf("requested to enable an unknown collector: %s", name)
+			}
+			collectorsToStart[name] = struct{}{}
 		}
-		f[filter] = true
 	}
+
 	collectors := make(map[string]Collector)
 	initiatedCollectorsMtx.Lock()
 	defer initiatedCollectorsMtx.Unlock()
-	for key, enabled := range collectorState {
-		if !*enabled || (len(f) > 0 && !f[key]) {
-			continue
-		}
+	for key, _ := range collectorsToStart {
 		if collector, ok := initiatedCollectors[key]; ok {
 			collectors[key] = collector
 		} else {
