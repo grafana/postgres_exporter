@@ -232,13 +232,13 @@ func parseUserQueries(content []byte, logger log.Logger) (map[string]intermediat
 // queries.
 // TODO: test code for all cu.
 // TODO: the YAML this supports is "non-standard" - we should move away from it.
-func addQueries(content []byte, pgVersion semver.Version, server *Server) error {
+func addQueries(content []byte, pgVersion semver.Version, server *Server, metricPrefix string) error {
 	metricMaps, newQueryOverrides, err := parseUserQueries(content, server.logger)
 	if err != nil {
 		return err
 	}
 	// Convert the loaded metric map into exporter representation
-	partialExporterMap := makeDescMap(pgVersion, server.labels, metricMaps, server.logger)
+	partialExporterMap := makeDescMap(pgVersion, server.labels, metricMaps, server.logger, metricPrefix)
 
 	// Merge the two maps (which are now quite flatteend)
 	for k, v := range partialExporterMap {

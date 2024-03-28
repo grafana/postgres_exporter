@@ -262,13 +262,13 @@ var builtinMetricMaps = map[string]intermediateMetricMap{
 }
 
 // Turn the MetricMap column mapping into a prometheus descriptor mapping.
-func makeDescMap(pgVersion semver.Version, serverLabels prometheus.Labels, metricMaps map[string]intermediateMetricMap, logger log.Logger) map[string]MetricMapNamespace {
+func makeDescMap(pgVersion semver.Version, serverLabels prometheus.Labels, metricMaps map[string]intermediateMetricMap, logger log.Logger, metricPrefix string) map[string]MetricMapNamespace {
 	var metricMap = make(map[string]MetricMapNamespace)
 
 	for namespace, intermediateMappings := range metricMaps {
 		thisMap := make(map[string]MetricMap)
 
-		namespace = strings.Replace(namespace, "pg", *metricPrefix, 1)
+		namespace = strings.Replace(namespace, "pg", metricPrefix, 1)
 
 		// Get the constant labels
 		var variableLabels []string
@@ -423,8 +423,9 @@ type Exporter struct {
 
 	// servers are used to allow re-using the DB connection between scrapes.
 	// servers contains metrics map and query overrides.
-	servers *Servers
-	logger  log.Logger
+	servers      *Servers
+	logger       log.Logger
+	metricPrefix string
 }
 
 // ExporterOpt configures Exporter.
@@ -481,9 +482,17 @@ func WithConstantLabels(s string) ExporterOpt {
 	}
 }
 
+// WithLogger configures logger.
 func WithLogger(logger log.Logger) ExporterOpt {
 	return func(e *Exporter) {
 		e.logger = logger
+	}
+}
+
+// WithMetricPrefix configures metric prefix.
+func WithMetricPrefix(prefix string) ExporterOpt {
+	return func(e *Exporter) {
+		e.metricPrefix = prefix
 	}
 }
 
@@ -624,7 +633,7 @@ func (e *Exporter) checkMapVersions(ch chan<- prometheus.Metric, server *Server)
 
 		// Get Default Metrics only for master database
 		if !e.disableDefaultMetrics && server.master {
-			server.metricMap = makeDescMap(semanticVersion, server.labels, e.builtinMetricMaps, server.logger)
+			server.metricMap = makeDescMap(semanticVersion, server.labels, e.builtinMetricMaps, server.logger, e.metricPrefix)
 			server.queryOverrides = makeQueryOverrideMap(semanticVersion, queryOverrides, server.logger)
 		} else {
 			server.metricMap = make(map[string]MetricMapNamespace)
@@ -645,7 +654,7 @@ func (e *Exporter) checkMapVersions(ch chan<- prometheus.Metric, server *Server)
 			} else {
 				hashsumStr := fmt.Sprintf("%x", sha256.Sum256(userQueriesData))
 
-				if err := addQueries(userQueriesData, semanticVersion, server); err != nil {
+				if err := addQueries(userQueriesData, semanticVersion, server, e.metricPrefix); err != nil {
 					level.Error(server.logger).Log("msg", "Failed to reload user queries", "path", e.userQueriesPath, "err", err)
 					e.userQueriesError.WithLabelValues(e.userQueriesPath, hashsumStr).Set(1)
 				} else {
