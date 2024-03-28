@@ -68,7 +68,6 @@ const (
 	serverLabelName = "server"
 )
 
-// TODO(thampiotr): consider removing this
 func main() {
 	kingpin.Version(version.Print(exporterName))
 	promslogConfig := &promslog.Config{}
