@@ -45,7 +45,7 @@
       "repeatRowId": null,
       "showTitle": true,
       "span": 4,
-      "title": "Postgres Overview",
+      "title": "PostgreSQL overview",
       "titleSize": "h6",
       "type": "row"
    },
