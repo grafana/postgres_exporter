@@ -61,7 +61,7 @@
               summary: 'PostgreSQL high number of slow queries.',
             },
             expr: |||
-              avg by (%(agg)s) (
+              avg by (datname, %(agg)s) (
                 rate (
                   pg_stat_activity_max_tx_duration{%(dbNameFilter)s, %(postgresExporterSelector)s}[2m]
                 )
