@@ -142,6 +142,7 @@ func main() {
 	if err != nil {
 		level.Warn(logger).Log("msg", "Failed to create PostgresCollector", "err", err.Error())
 	} else {
+		defer pe.Close()
 		prometheus.MustRegister(pe)
 	}
 
