@@ -16,7 +16,10 @@ package collector
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 
+	"github.com/blang/semver/v4"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
@@ -206,36 +209,53 @@ var (
 		[]string{"datid", "datname"},
 		prometheus.Labels{},
 	)
-
-	statDatabaseQuery = `
-		SELECT
-			datid
-			,datname
-			,numbackends
-			,xact_commit
-			,xact_rollback
-			,blks_read
-			,blks_hit
-			,tup_returned
-			,tup_fetched
-			,tup_inserted
-			,tup_updated
-			,tup_deleted
-			,conflicts
-			,temp_files
-			,temp_bytes
-			,deadlocks
-			,blk_read_time
-			,blk_write_time
-			,stats_reset
-		FROM pg_stat_database;
-	`
+	statDatabaseActiveTime = prometheus.NewDesc(prometheus.BuildFQName(
+		namespace,
+		statDatabaseSubsystem,
+		"active_time_seconds_total",
+	),
+		"Time spent executing SQL statements in this database, in seconds",
+		[]string{"datid", "datname"},
+		prometheus.Labels{},
+	)
 )
+
+func statDatabaseQuery(columns []string) string {
+	return fmt.Sprintf("SELECT %s FROM pg_stat_database;", strings.Join(columns, ","))
+}
 
 func (c *PGStatDatabaseCollector) Update(ctx context.Context, instance *instance, ch chan<- prometheus.Metric) error {
 	db := instance.getDB()
+
+	columns := []string{
+		"datid",
+		"datname",
+		"numbackends",
+		"xact_commit",
+		"xact_rollback",
+		"blks_read",
+		"blks_hit",
+		"tup_returned",
+		"tup_fetched",
+		"tup_inserted",
+		"tup_updated",
+		"tup_deleted",
+		"conflicts",
+		"temp_files",
+		"temp_bytes",
+		"deadlocks",
+		"blk_read_time",
+		"blk_write_time",
+		"stats_reset",
+	}
+
+	activeTimeAvail := instance.version.GTE(semver.MustParse("14.0.0"))
+	if activeTimeAvail {
+		columns = append(columns, "active_time")
+	}
+
 	rows, err := db.QueryContext(ctx,
-		statDatabaseQuery,
+		statDatabaseQuery(columns),
 	)
 	if err != nil {
 		return err
@@ -244,10 +264,10 @@ func (c *PGStatDatabaseCollector) Update(ctx context.Context, instance *instance
 
 	for rows.Next() {
 		var datid, datname sql.NullString
-		var numBackends, xactCommit, xactRollback, blksRead, blksHit, tupReturned, tupFetched, tupInserted, tupUpdated, tupDeleted, conflicts, tempFiles, tempBytes, deadlocks, blkReadTime, blkWriteTime sql.NullFloat64
+		var numBackends, xactCommit, xactRollback, blksRead, blksHit, tupReturned, tupFetched, tupInserted, tupUpdated, tupDeleted, conflicts, tempFiles, tempBytes, deadlocks, blkReadTime, blkWriteTime, activeTime sql.NullFloat64
 		var statsReset sql.NullTime
 
-		err := rows.Scan(
+		r := []any{
 			&datid,
 			&datname,
 			&numBackends,
@@ -267,7 +287,13 @@ func (c *PGStatDatabaseCollector) Update(ctx context.Context, instance *instance
 			&blkReadTime,
 			&blkWriteTime,
 			&statsReset,
-		)
+		}
+
+		if activeTimeAvail {
+			r = append(r, &activeTime)
+		}
+
+		err := rows.Scan(r...)
 		if err != nil {
 			return err
 		}
@@ -342,6 +368,10 @@ func (c *PGStatDatabaseCollector) Update(ctx context.Context, instance *instance
 		}
 		if !blkWriteTime.Valid {
 			level.Debug(c.log).Log("msg", "Skipping collecting metric because it has no blk_write_time")
+			continue
+		}
+		if activeTimeAvail && !activeTime.Valid {
+			level.Debug(c.log).Log("msg", "Skipping collecting metric because it has no active_time")
 			continue
 		}
 
@@ -473,6 +503,15 @@ func (c *PGStatDatabaseCollector) Update(ctx context.Context, instance *instance
 			statsResetMetric,
 			labels...,
 		)
+
+		if activeTimeAvail {
+			ch <- prometheus.MustNewConstMetric(
+				statDatabaseActiveTime,
+				prometheus.CounterValue,
+				activeTime.Float64/1000.0,
+				labels...,
+			)
+		}
 	}
 	return nil
 }

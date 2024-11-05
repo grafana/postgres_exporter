@@ -94,7 +94,7 @@ func main() {
 	}
 
 	excludedDatabases := strings.Split(*excludeDatabases, ",")
-	rootFallbackLogger.Log("msg", "Excluded databases", "databases", fmt.Sprintf("%v", excludedDatabases))
+	level.Info(rootFallbackLogger).Log("msg", "Excluded databases", "databases", fmt.Sprintf("%v", excludedDatabases))
 
 	if *queriesPath != "" {
 		level.Warn(rootFallbackLogger).Log("msg", "The extended queries.yaml config is DEPRECATED", "file", *queriesPath)
@@ -142,6 +142,7 @@ func main() {
 	if err != nil {
 		level.Warn(rootFallbackLogger).Log("msg", "Failed to create PostgresCollector", "err", err.Error())
 	} else {
+		defer pe.Close()
 		prometheus.MustRegister(pe)
 	}
 
