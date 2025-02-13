@@ -20,15 +20,13 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/prometheus-community/postgres_exporter/collector"
 	"github.com/prometheus-community/postgres_exporter/config"
 	"github.com/prometheus/client_golang/prometheus"
 	cversion "github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/promlog"
-	"github.com/prometheus/common/promlog/flag"
+	"github.com/prometheus/common/promslog"
+	"github.com/prometheus/common/promslog/flag"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/exporter-toolkit/web"
 	"github.com/prometheus/exporter-toolkit/web/kingpinflag"
@@ -51,7 +49,7 @@ var (
 	excludeDatabases       = kingpin.Flag("exclude-databases", "A list of databases to remove when autoDiscoverDatabases is enabled (DEPRECATED)").Default("").Envar("PG_EXPORTER_EXCLUDE_DATABASES").String()
 	includeDatabases       = kingpin.Flag("include-databases", "A list of databases to include when autoDiscoverDatabases is enabled (DEPRECATED)").Default("").Envar("PG_EXPORTER_INCLUDE_DATABASES").String()
 	metricPrefix           = kingpin.Flag("metric-prefix", "A metric prefix can be used to have non-default (not \"pg\") prefixes for each of the metrics").Default("pg").Envar("PG_EXPORTER_METRIC_PREFIX").String()
-	logger                 = log.NewNopLogger()
+	logger                 = promslog.NewNopLogger()
 )
 
 // Metric name parts.
@@ -71,11 +69,11 @@ const (
 
 func main() {
 	kingpin.Version(version.Print(exporterName))
-	promlogConfig := &promlog.Config{}
+	promlogConfig := &promslog.Config{}
 	flag.AddFlags(kingpin.CommandLine, promlogConfig)
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
-	logger = promlog.New(promlogConfig)
+	logger = promslog.New(promlogConfig)
 
 	if *onlyDumpMaps {
 		dumpMaps()
@@ -84,28 +82,28 @@ func main() {
 
 	if err := c.ReloadConfig(*configFile, logger); err != nil {
 		// This is not fatal, but it means that auth must be provided for every dsn.
-		level.Warn(logger).Log("msg", "Error loading config", "err", err)
+		logger.Warn("msg", "Error loading config", "err", err)
 	}
 
 	dsns, err := getDataSources()
 	if err != nil {
-		level.Error(logger).Log("msg", "Failed reading data sources", "err", err.Error())
+		logger.Error("msg", "Failed reading data sources", "err", err.Error())
 		os.Exit(1)
 	}
 
 	excludedDatabases := strings.Split(*excludeDatabases, ",")
-	level.Info(logger).Log("msg", "Excluded databases", "databases", fmt.Sprintf("%v", excludedDatabases))
+	logger.Info("msg", "Excluded databases", "databases", fmt.Sprintf("%v", excludedDatabases))
 
 	if *queriesPath != "" {
-		level.Warn(logger).Log("msg", "The extended queries.yaml config is DEPRECATED", "file", *queriesPath)
+		logger.Warn("msg", "The extended queries.yaml config is DEPRECATED", "file", *queriesPath)
 	}
 
 	if *autoDiscoverDatabases || *excludeDatabases != "" || *includeDatabases != "" {
-		level.Warn(logger).Log("msg", "Scraping additional databases via auto discovery is DEPRECATED")
+		logger.Warn("msg", "Scraping additional databases via auto discovery is DEPRECATED")
 	}
 
 	if *constantLabelsList != "" {
-		level.Warn(logger).Log("msg", "Constant labels on all metrics is DEPRECATED")
+		logger.Warn("msg", "Constant labels on all metrics is DEPRECATED")
 	}
 
 	opts := []ExporterOpt{
@@ -140,7 +138,7 @@ func main() {
 		[]string{},
 	)
 	if err != nil {
-		level.Warn(logger).Log("msg", "Failed to create PostgresCollector", "err", err.Error())
+		logger.Warn("msg", "Failed to create PostgresCollector", "err", err.Error())
 	} else {
 		defer pe.Close()
 		prometheus.MustRegister(pe)
@@ -162,7 +160,7 @@ func main() {
 		}
 		landingPage, err := web.NewLandingPage(landingConfig)
 		if err != nil {
-			level.Error(logger).Log("err", err)
+			logger.Error("err", err)
 			os.Exit(1)
 		}
 		http.Handle("/", landingPage)
@@ -172,7 +170,7 @@ func main() {
 
 	srv := &http.Server{}
 	if err := web.ListenAndServe(srv, webConfig, logger); err != nil {
-		level.Error(logger).Log("msg", "Error running HTTP server", "err", err)
+		logger.Error("msg", "Error running HTTP server", "err", err)
 		os.Exit(1)
 	}
 }
