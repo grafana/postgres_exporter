@@ -37,7 +37,7 @@ func handleProbe(logger *slog.Logger, excludeDatabases []string) http.HandlerFun
 		var authModule config.AuthModule
 		authModuleName := params.Get("auth_module")
 		if authModuleName == "" {
-			logger.Info("msg", "no auth_module specified, using default")
+			logger.Info("no auth_module specified, using default")
 		} else {
 			var ok bool
 			authModule, ok = conf.AuthModules[authModuleName]
@@ -53,7 +53,7 @@ func handleProbe(logger *slog.Logger, excludeDatabases []string) http.HandlerFun
 
 		dsn, err := authModule.ConfigureTarget(target)
 		if err != nil {
-			logger.Error("msg", "failed to configure target", "err", err)
+			logger.Error("failed to configure target", "err", err)
 			http.Error(w, fmt.Sprintf("could not configure dsn for target: %v", err), http.StatusBadRequest)
 			return
 		}
@@ -84,7 +84,7 @@ func handleProbe(logger *slog.Logger, excludeDatabases []string) http.HandlerFun
 		// Run the probe
 		pc, err := collector.NewProbeCollector(tl, excludeDatabases, registry, dsn)
 		if err != nil {
-			logger.Error("msg", "Error creating probe collector", "err", err)
+			logger.Error("Error creating probe collector", "err", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

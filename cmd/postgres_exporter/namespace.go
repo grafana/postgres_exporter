@@ -189,10 +189,10 @@ func queryNamespaceMappings(ch chan<- prometheus.Metric, server *Server) map[str
 	scrapeStart := time.Now()
 
 	for namespace, mapping := range server.metricMap {
-		logger.Debug("msg", "Querying namespace", "namespace", namespace)
+		logger.Debug("Querying namespace", "namespace", namespace)
 
 		if mapping.master && !server.master {
-			logger.Debug("msg", "Query skipped...")
+			logger.Debug("Query skipped...")
 			continue
 		}
 
@@ -201,7 +201,7 @@ func queryNamespaceMappings(ch chan<- prometheus.Metric, server *Server) map[str
 			serVersion, _ := semver.Parse(server.lastMapVersion.String())
 			runServerRange, _ := semver.ParseRange(server.runonserver)
 			if !runServerRange(serVersion) {
-				logger.Debug("msg", "Query skipped for this database version", "version", server.lastMapVersion.String(), "target_version", server.runonserver)
+				logger.Debug("Query skipped for this database version", "version", server.lastMapVersion.String(), "target_version", server.runonserver)
 				continue
 			}
 		}

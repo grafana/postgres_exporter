@@ -82,28 +82,28 @@ func main() {
 
 	if err := c.ReloadConfig(*configFile, logger); err != nil {
 		// This is not fatal, but it means that auth must be provided for every dsn.
-		logger.Warn("msg", "Error loading config", "err", err)
+		logger.Warn("Error loading config", "err", err)
 	}
 
 	dsns, err := getDataSources()
 	if err != nil {
-		logger.Error("msg", "Failed reading data sources", "err", err.Error())
+		logger.Error("Failed reading data sources", "err", err.Error())
 		os.Exit(1)
 	}
 
 	excludedDatabases := strings.Split(*excludeDatabases, ",")
-	logger.Info("msg", "Excluded databases", "databases", fmt.Sprintf("%v", excludedDatabases))
+	logger.Info("Excluded databases", "databases", fmt.Sprintf("%v", excludedDatabases))
 
 	if *queriesPath != "" {
-		logger.Warn("msg", "The extended queries.yaml config is DEPRECATED", "file", *queriesPath)
+		logger.Warn("The extended queries.yaml config is DEPRECATED", "file", *queriesPath)
 	}
 
 	if *autoDiscoverDatabases || *excludeDatabases != "" || *includeDatabases != "" {
-		logger.Warn("msg", "Scraping additional databases via auto discovery is DEPRECATED")
+		logger.Warn("Scraping additional databases via auto discovery is DEPRECATED")
 	}
 
 	if *constantLabelsList != "" {
-		logger.Warn("msg", "Constant labels on all metrics is DEPRECATED")
+		logger.Warn("Constant labels on all metrics is DEPRECATED")
 	}
 
 	opts := []ExporterOpt{
@@ -138,7 +138,7 @@ func main() {
 		[]string{},
 	)
 	if err != nil {
-		logger.Warn("msg", "Failed to create PostgresCollector", "err", err.Error())
+		logger.Warn("Failed to create PostgresCollector", "err", err.Error())
 	} else {
 		defer pe.Close()
 		prometheus.MustRegister(pe)
@@ -170,7 +170,7 @@ func main() {
 
 	srv := &http.Server{}
 	if err := web.ListenAndServe(srv, webConfig, logger); err != nil {
-		logger.Error("msg", "Error running HTTP server", "err", err)
+		logger.Error("Error running HTTP server", "err", err)
 		os.Exit(1)
 	}
 }

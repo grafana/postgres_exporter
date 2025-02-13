@@ -38,19 +38,19 @@ func (e *Exporter) discoverDatabaseDSNs() []string {
 			var err error
 			dsnURI, err = url.Parse(dsn)
 			if err != nil {
-				logger.Error("msg", "Unable to parse DSN as URI", "dsn", loggableDSN(dsn), "err", err)
+				logger.Error("Unable to parse DSN as URI", "dsn", loggableDSN(dsn), "err", err)
 				continue
 			}
 		} else if connstringRe.MatchString(dsn) {
 			dsnConnstring = dsn
 		} else {
-			logger.Error("msg", "Unable to parse DSN as either URI or connstring", "dsn", loggableDSN(dsn))
+			logger.Error("Unable to parse DSN as either URI or connstring", "dsn", loggableDSN(dsn))
 			continue
 		}
 
 		server, err := e.servers.GetServer(dsn)
 		if err != nil {
-			logger.Error("msg", "Error opening connection to database", "dsn", loggableDSN(dsn), "err", err)
+			logger.Error("Error opening connection to database", "dsn", loggableDSN(dsn), "err", err)
 			continue
 		}
 		dsns[dsn] = struct{}{}
@@ -60,7 +60,7 @@ func (e *Exporter) discoverDatabaseDSNs() []string {
 
 		databaseNames, err := queryDatabases(server)
 		if err != nil {
-			logger.Error("msg", "Error querying databases", "dsn", loggableDSN(dsn), "err", err)
+			logger.Error("Error querying databases", "dsn", loggableDSN(dsn), "err", err)
 			continue
 		}
 		for _, databaseName := range databaseNames {
@@ -108,7 +108,7 @@ func (e *Exporter) scrapeDSN(ch chan<- prometheus.Metric, dsn string) error {
 
 	// Check if map versions need to be updated
 	if err := e.checkMapVersions(ch, server); err != nil {
-		logger.Warn("msg", "Proceeding with outdated query maps, as the Postgres version could not be determined", "err", err)
+		logger.Warn("Proceeding with outdated query maps, as the Postgres version could not be determined", "err", err)
 	}
 
 	return server.Scrape(ch, e.disableSettingsMetrics)

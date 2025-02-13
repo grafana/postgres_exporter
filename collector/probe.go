@@ -78,7 +78,7 @@ func (pc *ProbeCollector) Collect(ch chan<- prometheus.Metric) {
 	err := pc.instance.setup()
 	defer pc.instance.Close()
 	if err != nil {
-		pc.logger.Error("msg", "Error opening connection to database", "err", err)
+		pc.logger.Error("Error opening connection to database", "err", err)
 		return
 	}
 

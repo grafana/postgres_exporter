@@ -283,7 +283,7 @@ func makeDescMap(pgVersion semver.Version, serverLabels prometheus.Labels, metri
 				if !columnMapping.supportedVersions(pgVersion) {
 					// It's very useful to be able to see what columns are being
 					// rejected.
-					logger.Debug("msg", "Column is being forced to discard due to version incompatibility", "column", columnName)
+					logger.Debug("Column is being forced to discard due to version incompatibility", "column", columnName)
 					thisMap[columnName] = MetricMap{
 						discard: true,
 						conversion: func(_ interface{}) (float64, bool) {
@@ -370,7 +370,7 @@ func makeDescMap(pgVersion semver.Version, serverLabels prometheus.Labels, metri
 						case string:
 							durationString = t
 						default:
-							logger.Error("msg", "Duration conversion metric was not a string")
+							logger.Error("Duration conversion metric was not a string")
 							return math.NaN(), false
 						}
 
@@ -380,7 +380,7 @@ func makeDescMap(pgVersion semver.Version, serverLabels prometheus.Labels, metri
 
 						d, err := time.ParseDuration(durationString)
 						if err != nil {
-							logger.Error("msg", "Failed converting result to metric", "column", columnName, "in", in, "err", err)
+							logger.Error("Failed converting result to metric", "column", columnName, "in", in, "err", err)
 							return math.NaN(), false
 						}
 						return float64(d / time.Millisecond), true
@@ -581,7 +581,7 @@ func newDesc(subsystem, name, help string, labels prometheus.Labels) *prometheus
 }
 
 func checkPostgresVersion(db *sql.DB, server string) (semver.Version, string, error) {
-	logger.Debug("msg", "Querying PostgreSQL version", "server", server)
+	logger.Debug("Querying PostgreSQL version", "server", server)
 	versionRow := db.QueryRow("SELECT version();")
 	var versionString string
 	err := versionRow.Scan(&versionString)
@@ -604,12 +604,12 @@ func (e *Exporter) checkMapVersions(ch chan<- prometheus.Metric, server *Server)
 	}
 
 	if !e.disableDefaultMetrics && semanticVersion.LT(lowestSupportedVersion) {
-		logger.Warn("msg", "PostgreSQL version is lower than our lowest supported version", "server", server, "version", semanticVersion, "lowest_supported_version", lowestSupportedVersion)
+		logger.Warn("PostgreSQL version is lower than our lowest supported version", "server", server, "version", semanticVersion, "lowest_supported_version", lowestSupportedVersion)
 	}
 
 	// Check if semantic version changed and recalculate maps if needed.
 	if semanticVersion.NE(server.lastMapVersion) || server.metricMap == nil {
-		logger.Info("msg", "Semantic version changed", "server", server, "from", server.lastMapVersion, "to", semanticVersion)
+		logger.Info("Semantic version changed", "server", server, "from", server.lastMapVersion, "to", semanticVersion)
 		server.mappingMtx.Lock()
 
 		// Get Default Metrics only for master database
@@ -630,13 +630,13 @@ func (e *Exporter) checkMapVersions(ch chan<- prometheus.Metric, server *Server)
 			// Calculate the hashsum of the useQueries
 			userQueriesData, err := os.ReadFile(e.userQueriesPath)
 			if err != nil {
-				logger.Error("msg", "Failed to reload user queries", "path", e.userQueriesPath, "err", err)
+				logger.Error("Failed to reload user queries", "path", e.userQueriesPath, "err", err)
 				e.userQueriesError.WithLabelValues(e.userQueriesPath, "").Set(1)
 			} else {
 				hashsumStr := fmt.Sprintf("%x", sha256.Sum256(userQueriesData))
 
 				if err := addQueries(userQueriesData, semanticVersion, server); err != nil {
-					logger.Error("msg", "Failed to reload user queries", "path", e.userQueriesPath, "err", err)
+					logger.Error("Failed to reload user queries", "path", e.userQueriesPath, "err", err)
 					e.userQueriesError.WithLabelValues(e.userQueriesPath, hashsumStr).Set(1)
 				} else {
 					// Mark user queries as successfully loaded

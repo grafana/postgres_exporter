@@ -173,7 +173,7 @@ func (p PostgresCollector) Collect(ch chan<- prometheus.Metric) {
 	err := inst.setup()
 	defer inst.Close()
 	if err != nil {
-		p.logger.Error("msg", "Error opening connection to database", "err", err)
+		p.logger.Error("Error opening connection to database", "err", err)
 		return
 	}
 
@@ -200,13 +200,13 @@ func execute(ctx context.Context, name string, c Collector, instance *instance, 
 
 	if err != nil {
 		if IsNoDataError(err) {
-			logger.Debug("msg", "collector returned no data", "name", name, "duration_seconds", duration.Seconds(), "err", err)
+			logger.Debug("collector returned no data", "name", name, "duration_seconds", duration.Seconds(), "err", err)
 		} else {
-			logger.Error("msg", "collector failed", "name", name, "duration_seconds", duration.Seconds(), "err", err)
+			logger.Error("collector failed", "name", name, "duration_seconds", duration.Seconds(), "err", err)
 		}
 		success = 0
 	} else {
-		logger.Debug("msg", "collector succeeded", "name", name, "duration_seconds", duration.Seconds())
+		logger.Debug("collector succeeded", "name", name, "duration_seconds", duration.Seconds())
 		success = 1
 	}
 	ch <- prometheus.MustNewConstMetric(scrapeDurationDesc, prometheus.GaugeValue, duration.Seconds(), name)
