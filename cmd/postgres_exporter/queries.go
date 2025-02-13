@@ -16,7 +16,7 @@ package postgres_exporter
 import (
 	"errors"
 	"fmt"
-	"github.com/go-kit/log"
+	"log/slog"
 
 	"github.com/blang/semver/v4"
 	"gopkg.in/yaml.v2"
@@ -165,7 +165,7 @@ var queryOverrides = map[string][]OverrideQuery{
 
 // Convert the query override file to the version-specific query override file
 // for the exporter.
-func makeQueryOverrideMap(pgVersion semver.Version, queryOverrides map[string][]OverrideQuery, logger log.Logger) map[string]string {
+func makeQueryOverrideMap(pgVersion semver.Version, queryOverrides map[string][]OverrideQuery, logger *slog.Logger) map[string]string {
 	resultMap := make(map[string]string)
 	for name, overrideDef := range queryOverrides {
 		// Find a matching semver. We make it an error to have overlapping
@@ -187,7 +187,7 @@ func makeQueryOverrideMap(pgVersion semver.Version, queryOverrides map[string][]
 	return resultMap
 }
 
-func parseUserQueries(content []byte, logger log.Logger) (map[string]intermediateMetricMap, map[string]string, error) {
+func parseUserQueries(content []byte, logger *slog.Logger) (map[string]intermediateMetricMap, map[string]string, error) {
 	var userQueries UserQueries
 
 	err := yaml.Unmarshal(content, &userQueries)
@@ -252,9 +252,9 @@ func addQueries(content []byte, pgVersion semver.Version, server *Server, metric
 	for k, v := range partialExporterMap {
 		_, found := server.metricMap[k]
 		if found {
-			level.Debug(server.logger).Log("msg", "Overriding metric from user YAML file", "metric", k)
+			server.logger.Debug("Overriding metric from user YAML file", "metric", k)
 		} else {
-			level.Debug(server.logger).Log("msg", "Adding new metric from user YAML file", "metric", k)
+			server.logger.Debug("Adding new metric from user YAML file", "metric", k)
 		}
 		server.metricMap[k] = v
 	}
@@ -263,9 +263,9 @@ func addQueries(content []byte, pgVersion semver.Version, server *Server, metric
 	for k, v := range newQueryOverrides {
 		_, found := server.queryOverrides[k]
 		if found {
-			level.Debug(server.logger).Log("msg", "Overriding query override from user YAML file", "query_override", k)
+			server.logger.Debug("Overriding query override from user YAML file", "query_override", k)
 		} else {
-			level.Debug(server.logger).Log("msg", "Adding new query override from user YAML file", "query_override", k)
+			server.logger.Debug("Adding new query override from user YAML file", "query_override", k)
 		}
 		server.queryOverrides[k] = v
 	}

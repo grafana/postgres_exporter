@@ -18,7 +18,6 @@ import (
 	"database/sql"
 	"log/slog"
 
-	"github.com/blang/semver/v4"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

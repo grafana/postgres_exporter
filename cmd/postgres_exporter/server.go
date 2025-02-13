@@ -16,13 +16,13 @@ package postgres_exporter
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/blang/semver/v4"
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/promslog"
 )
 
 // Server describes a connection to Postgres.
@@ -44,7 +44,7 @@ type Server struct {
 	// Currently cached metrics
 	metricCache map[string]cachedMetrics
 	cacheMtx    sync.Mutex
-	logger      log.Logger
+	logger      *slog.Logger
 }
 
 // ServerOpt configures a server.
@@ -59,7 +59,7 @@ func ServerWithLabels(labels prometheus.Labels) ServerOpt {
 	}
 }
 
-func ServerWithLogger(logger log.Logger) ServerOpt {
+func ServerWithLogger(logger *slog.Logger) ServerOpt {
 	return func(s *Server) {
 		s.logger = logger
 	}
@@ -86,14 +86,14 @@ func NewServer(dsn string, opts ...ServerOpt) (*Server, error) {
 			serverLabelName: fingerprint,
 		},
 		metricCache: make(map[string]cachedMetrics),
-		logger:      log.NewNopLogger(),
+		logger:      promslog.NewNopLogger(),
 	}
 
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	level.Info(s.logger).Log("msg", "Established new database connection", "fingerprint", fingerprint)
+	s.logger.Info("Established new database connection", "fingerprint", fingerprint)
 
 	return s, nil
 }
@@ -107,7 +107,7 @@ func (s *Server) Close() error {
 func (s *Server) Ping() error {
 	if err := s.db.Ping(); err != nil {
 		if cerr := s.Close(); cerr != nil {
-			level.Error(s.logger).Log("msg", "Error while closing non-pinging DB connection", "server", s, "err", cerr)
+			s.logger.Error("Error while closing non-pinging DB connection", "server", s, "err", cerr)
 		}
 		return err
 	}
@@ -199,7 +199,7 @@ func (s *Servers) Close() {
 	defer s.m.Unlock()
 	for _, server := range s.servers {
 		if err := server.Close(); err != nil {
-			level.Error(server.logger).Log("msg", "Failed to close connection", "server", server, "err", err)
+			server.logger.Error("Failed to close connection", "server", server, "err", err)
 		}
 	}
 }

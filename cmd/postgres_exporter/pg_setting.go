@@ -31,7 +31,7 @@ var (
 
 // Query the pg_settings view containing runtime variables
 func querySettings(ch chan<- prometheus.Metric, server *Server) error {
-	level.Debug(server.logger).Log("msg", "Querying pg_setting view", "server", server)
+	server.logger.Debug("Querying pg_setting view", "server", server)
 
 	// pg_settings docs: https://www.postgresql.org/docs/current/static/view-pg-settings.html
 	//

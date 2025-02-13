@@ -17,7 +17,6 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
-	"slices"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
