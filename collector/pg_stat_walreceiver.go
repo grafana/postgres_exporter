@@ -156,55 +156,55 @@ func (c *PGStatWalReceiverCollector) Update(ctx context.Context, instance *insta
 			}
 		}
 		if !upstreamHost.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because upstream host is null")
+			c.log.Debug("Skipping wal receiver stats because upstream host is null")
 			continue
 		}
 
 		if !slotName.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because slotname host is null")
+			c.log.Debug("Skipping wal receiver stats because slotname host is null")
 			continue
 		}
 
 		if !status.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because status is null")
+			c.log.Debug("Skipping wal receiver stats because status is null")
 			continue
 		}
 		labels := []string{upstreamHost.String, slotName.String, status.String}
 
 		if !receiveStartLsn.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because receive_start_lsn is null")
+			c.log.Debug("Skipping wal receiver stats because receive_start_lsn is null")
 			continue
 		}
 		if !receiveStartTli.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because receive_start_tli is null")
+			c.log.Debug("Skipping wal receiver stats because receive_start_tli is null")
 			continue
 		}
 		if hasFlushedLSN && !flushedLsn.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because flushed_lsn is null")
+			c.log.Debug("Skipping wal receiver stats because flushed_lsn is null")
 			continue
 		}
 		if !receivedTli.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because received_tli is null")
+			c.log.Debug("Skipping wal receiver stats because received_tli is null")
 			continue
 		}
 		if !lastMsgSendTime.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because last_msg_send_time is null")
+			c.log.Debug("Skipping wal receiver stats because last_msg_send_time is null")
 			continue
 		}
 		if !lastMsgReceiptTime.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because last_msg_receipt_time is null")
+			c.log.Debug("Skipping wal receiver stats because last_msg_receipt_time is null")
 			continue
 		}
 		if !latestEndLsn.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because latest_end_lsn is null")
+			c.log.Debug("Skipping wal receiver stats because latest_end_lsn is null")
 			continue
 		}
 		if !latestEndTime.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because latest_end_time is null")
+			c.log.Debug("Skipping wal receiver stats because latest_end_time is null")
 			continue
 		}
 		if !upstreamNode.Valid {
-			c.log.Debug("msg", "Skipping wal receiver stats because upstream_node is null")
+			c.log.Debug("Skipping wal receiver stats because upstream_node is null")
 			continue
 		}
 		ch <- prometheus.MustNewConstMetric(

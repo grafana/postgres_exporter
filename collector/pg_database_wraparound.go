@@ -80,15 +80,15 @@ func (c *PGDatabaseWraparoundCollector) Update(ctx context.Context, instance *in
 		}
 
 		if !datname.Valid {
-			c.log.Debug("msg", "Skipping database with NULL name")
+			c.log.Debug("Skipping database with NULL name")
 			continue
 		}
 		if !ageDatfrozenxid.Valid {
-			c.log.Debug("msg", "Skipping stat emission with NULL age_datfrozenxid")
+			c.log.Debug("Skipping stat emission with NULL age_datfrozenxid")
 			continue
 		}
 		if !ageDatminmxid.Valid {
-			c.log.Debug("msg", "Skipping stat emission with NULL age_datminmxid")
+			c.log.Debug("Skipping stat emission with NULL age_datminmxid")
 			continue
 		}
 

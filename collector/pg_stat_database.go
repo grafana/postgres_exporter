@@ -298,85 +298,85 @@ func (c *PGStatDatabaseCollector) Update(ctx context.Context, instance *instance
 		}
 
 		if !datid.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no datid")
+			c.log.Debug("Skipping collecting metric because it has no datid")
 			continue
 		}
 		if !datname.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no datname")
+			c.log.Debug("Skipping collecting metric because it has no datname")
 			continue
 		}
 		if !numBackends.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no numbackends")
+			c.log.Debug("Skipping collecting metric because it has no numbackends")
 			continue
 		}
 		if !xactCommit.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no xact_commit")
+			c.log.Debug("Skipping collecting metric because it has no xact_commit")
 			continue
 		}
 		if !xactRollback.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no xact_rollback")
+			c.log.Debug("Skipping collecting metric because it has no xact_rollback")
 			continue
 		}
 		if !blksRead.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no blks_read")
+			c.log.Debug("Skipping collecting metric because it has no blks_read")
 			continue
 		}
 		if !blksHit.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no blks_hit")
+			c.log.Debug("Skipping collecting metric because it has no blks_hit")
 			continue
 		}
 		if !tupReturned.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no tup_returned")
+			c.log.Debug("Skipping collecting metric because it has no tup_returned")
 			continue
 		}
 		if !tupFetched.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no tup_fetched")
+			c.log.Debug("Skipping collecting metric because it has no tup_fetched")
 			continue
 		}
 		if !tupInserted.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no tup_inserted")
+			c.log.Debug("Skipping collecting metric because it has no tup_inserted")
 			continue
 		}
 		if !tupUpdated.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no tup_updated")
+			c.log.Debug("Skipping collecting metric because it has no tup_updated")
 			continue
 		}
 		if !tupDeleted.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no tup_deleted")
+			c.log.Debug("Skipping collecting metric because it has no tup_deleted")
 			continue
 		}
 		if !conflicts.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no conflicts")
+			c.log.Debug("Skipping collecting metric because it has no conflicts")
 			continue
 		}
 		if !tempFiles.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no temp_files")
+			c.log.Debug("Skipping collecting metric because it has no temp_files")
 			continue
 		}
 		if !tempBytes.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no temp_bytes")
+			c.log.Debug("Skipping collecting metric because it has no temp_bytes")
 			continue
 		}
 		if !deadlocks.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no deadlocks")
+			c.log.Debug("Skipping collecting metric because it has no deadlocks")
 			continue
 		}
 		if !blkReadTime.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no blk_read_time")
+			c.log.Debug("Skipping collecting metric because it has no blk_read_time")
 			continue
 		}
 		if !blkWriteTime.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no blk_write_time")
+			c.log.Debug("Skipping collecting metric because it has no blk_write_time")
 			continue
 		}
 		if activeTimeAvail && !activeTime.Valid {
-			c.log.Debug("msg", "Skipping collecting metric because it has no active_time")
+			c.log.Debug("Skipping collecting metric because it has no active_time")
 			continue
 		}
 
 		statsResetMetric := 0.0
 		if !statsReset.Valid {
-			c.log.Debug("msg", "No metric for stats_reset, will collect 0 instead")
+			c.log.Debug("No metric for stats_reset, will collect 0 instead")
 		}
 		if statsReset.Valid {
 			statsResetMetric = float64(statsReset.Time.Unix())

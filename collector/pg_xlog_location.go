@@ -58,7 +58,7 @@ func (c PGXlogLocationCollector) Update(ctx context.Context, instance *instance,
 	// https://wiki.postgresql.org/wiki/New_in_postgres_10#Renaming_of_.22xlog.22_to_.22wal.22_Globally_.28and_location.2Flsn.29
 	after10 := instance.version.Compare(semver.MustParse("10.0.0"))
 	if after10 >= 0 {
-		c.log.Warn("msg", "xlog_location collector is not available on PostgreSQL >= 10.0.0, skipping")
+		c.log.Warn("xlog_location collector is not available on PostgreSQL >= 10.0.0, skipping")
 		return nil
 	}
 
