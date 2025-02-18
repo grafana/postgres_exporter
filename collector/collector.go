@@ -119,7 +119,7 @@ func NewPostgresCollector(logger *slog.Logger, excludeDatabases []string, dsn st
 	collectors := make(map[string]Collector)
 	initiatedCollectorsMtx.Lock()
 	defer initiatedCollectorsMtx.Unlock()
-	for key, _ := range collectorsToStart {
+	for key := range collectorsToStart {
 		if collector, ok := initiatedCollectors[key]; ok {
 			collectors[key] = collector
 		} else {

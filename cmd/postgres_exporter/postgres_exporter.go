@@ -144,6 +144,8 @@ func (e *ErrorConnectToServer) Error() string {
 }
 
 // TODO: revisit this with the semver system
+//
+//nolint:unused
 func dumpMaps() {
 	// TODO: make this function part of the exporter
 	for name, cmap := range builtinMetricMaps {
