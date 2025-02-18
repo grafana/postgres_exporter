@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//nolint:unused
 package postgres_exporter
 
 import (
@@ -20,18 +21,17 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
-	"github.com/prometheus-community/postgres_exporter/collector"
-	"github.com/prometheus-community/postgres_exporter/config"
 	"github.com/prometheus/client_golang/prometheus"
 	cversion "github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/promlog"
-	"github.com/prometheus/common/promlog/flag"
+	"github.com/prometheus/common/promslog"
+	"github.com/prometheus/common/promslog/flag"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/exporter-toolkit/web"
 	"github.com/prometheus/exporter-toolkit/web/kingpinflag"
+
+	"github.com/prometheus-community/postgres_exporter/collector"
+	"github.com/prometheus-community/postgres_exporter/config"
 )
 
 var (
@@ -52,7 +52,7 @@ var (
 	includeDatabases       = kingpin.Flag("include-databases", "A list of databases to include when autoDiscoverDatabases is enabled (DEPRECATED)").Default("").Envar("PG_EXPORTER_INCLUDE_DATABASES").String()
 
 	// rootFallbackLogger is used when we cannot use the regular logger in this fork. Under normal operations, there shouldn't be anything logged using this.
-	rootFallbackLogger = log.NewLogfmtLogger(os.Stderr)
+	rootFallbackLogger = promslog.New(&promslog.Config{})
 )
 
 // Metric name parts.
@@ -72,7 +72,7 @@ const (
 
 func main() {
 	kingpin.Version(version.Print(exporterName))
-	promlogConfig := &promlog.Config{}
+	promlogConfig := &promslog.Config{}
 	flag.AddFlags(kingpin.CommandLine, promlogConfig)
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
@@ -84,28 +84,28 @@ func main() {
 
 	if err := c.ReloadConfig(*configFile, rootFallbackLogger); err != nil {
 		// This is not fatal, but it means that auth must be provided for every dsn.
-		level.Warn(rootFallbackLogger).Log("msg", "Error loading config", "err", err)
+		rootFallbackLogger.Warn("Error loading config", "err", err)
 	}
 
 	dsns, err := getDataSources()
 	if err != nil {
-		level.Error(rootFallbackLogger).Log("msg", "Failed reading data sources", "err", err.Error())
+		rootFallbackLogger.Error("Failed reading data sources", "err", err.Error())
 		os.Exit(1)
 	}
 
 	excludedDatabases := strings.Split(*excludeDatabases, ",")
-	level.Info(rootFallbackLogger).Log("msg", "Excluded databases", "databases", fmt.Sprintf("%v", excludedDatabases))
+	rootFallbackLogger.Info("Excluded databases", "databases", fmt.Sprintf("%v", excludedDatabases))
 
 	if *queriesPath != "" {
-		level.Warn(rootFallbackLogger).Log("msg", "The extended queries.yaml config is DEPRECATED", "file", *queriesPath)
+		rootFallbackLogger.Warn("The extended queries.yaml config is DEPRECATED", "file", *queriesPath)
 	}
 
 	if *autoDiscoverDatabases || *excludeDatabases != "" || *includeDatabases != "" {
-		level.Warn(rootFallbackLogger).Log("msg", "Scraping additional databases via auto discovery is DEPRECATED")
+		rootFallbackLogger.Warn("Scraping additional databases via auto discovery is DEPRECATED")
 	}
 
 	if *constantLabelsList != "" {
-		level.Warn(rootFallbackLogger).Log("msg", "Constant labels on all metrics is DEPRECATED")
+		rootFallbackLogger.Warn("Constant labels on all metrics is DEPRECATED")
 	}
 
 	opts := []ExporterOpt{
@@ -140,7 +140,7 @@ func main() {
 		[]string{},
 	)
 	if err != nil {
-		level.Warn(rootFallbackLogger).Log("msg", "Failed to create PostgresCollector", "err", err.Error())
+		rootFallbackLogger.Warn("Failed to create PostgresCollector", "err", err.Error())
 	} else {
 		defer pe.Close()
 		prometheus.MustRegister(pe)
@@ -162,7 +162,7 @@ func main() {
 		}
 		landingPage, err := web.NewLandingPage(landingConfig)
 		if err != nil {
-			level.Error(rootFallbackLogger).Log("err", err)
+			rootFallbackLogger.Error("Error initializing landing page", "err", err)
 			os.Exit(1)
 		}
 		http.Handle("/", landingPage)
@@ -172,7 +172,7 @@ func main() {
 
 	srv := &http.Server{}
 	if err := web.ListenAndServe(srv, webConfig, rootFallbackLogger); err != nil {
-		level.Error(rootFallbackLogger).Log("msg", "Error running HTTP server", "err", err)
+		rootFallbackLogger.Error("Error running HTTP server", "err", err)
 		os.Exit(1)
 	}
 }
