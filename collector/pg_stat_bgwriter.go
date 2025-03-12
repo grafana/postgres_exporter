@@ -125,8 +125,9 @@ var (
 )
 
 func (PGStatBGWriterCollector) Update(ctx context.Context, instance *instance, ch chan<- prometheus.Metric) error {
+	db := instance.getDB()
+
 	if instance.version.GE(semver.MustParse("17.0.0")) {
-		db := instance.getDB()
 		row := db.QueryRowContext(ctx, statBGWriterQueryAfter17)
 
 		var bc, mwc, ba sql.NullInt64
@@ -174,8 +175,8 @@ func (PGStatBGWriterCollector) Update(ctx context.Context, instance *instance, c
 			srMetric,
 		)
 	} else {
-		db := instance.getDB()
-		row := db.QueryRowContext(ctx, statBGWriterQueryBefore17)
+		row := db.QueryRowContext(ctx,
+			statBGWriterQueryBefore17)
 
 		var cpt, cpr, bcp, bc, mwc, bb, bbf, ba sql.NullInt64
 		var cpwt, cpst sql.NullFloat64
