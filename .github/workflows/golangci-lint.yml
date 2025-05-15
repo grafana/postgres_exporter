@@ -12,6 +12,9 @@ on:
       - ".golangci.yml"
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   golangci:
     name: lint
@@ -19,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          persist-credentials: false
       - name: install Go
         uses: actions/setup-go@6edd4406fa81c3da01a34fa6f6343087c207a568 # v3.5.0
         with:
