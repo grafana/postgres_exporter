@@ -29,7 +29,7 @@ func init() {
 type PGStatBGWriterCollector struct {
 }
 
-func NewPGStatBGWriterCollector(collectorConfig) (Collector, error) {
+func NewPGStatBGWriterCollector(CollectorConfig) (Collector, error) {
 	return &PGStatBGWriterCollector{}, nil
 }
 

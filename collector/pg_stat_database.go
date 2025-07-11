@@ -35,8 +35,8 @@ type PGStatDatabaseCollector struct {
 	log log.Logger
 }
 
-func NewPGStatDatabaseCollector(config collectorConfig) (Collector, error) {
-	return &PGStatDatabaseCollector{log: config.logger}, nil
+func NewPGStatDatabaseCollector(config CollectorConfig) (Collector, error) {
+	return &PGStatDatabaseCollector{log: config.Logger}, nil
 }
 
 var (

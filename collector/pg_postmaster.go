@@ -29,7 +29,7 @@ func init() {
 type PGPostmasterCollector struct {
 }
 
-func NewPGPostmasterCollector(collectorConfig) (Collector, error) {
+func NewPGPostmasterCollector(CollectorConfig) (Collector, error) {
 	return &PGPostmasterCollector{}, nil
 }
 

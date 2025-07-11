@@ -32,8 +32,8 @@ type PGDatabaseWraparoundCollector struct {
 	log log.Logger
 }
 
-func NewPGDatabaseWraparoundCollector(config collectorConfig) (Collector, error) {
-	return &PGDatabaseWraparoundCollector{log: config.logger}, nil
+func NewPGDatabaseWraparoundCollector(config CollectorConfig) (Collector, error) {
+	return &PGDatabaseWraparoundCollector{log: config.Logger}, nil
 }
 
 var (

@@ -31,9 +31,9 @@ type PGLocksCollector struct {
 	log log.Logger
 }
 
-func NewPGLocksCollector(config collectorConfig) (Collector, error) {
+func NewPGLocksCollector(config CollectorConfig) (Collector, error) {
 	return &PGLocksCollector{
-		log: config.logger,
+		log: config.Logger,
 	}, nil
 }
 
