@@ -32,8 +32,8 @@ type PGReplicationSlotCollector struct {
 	log *slog.Logger
 }
 
-func NewPGReplicationSlotCollector(config collectorConfig) (Collector, error) {
-	return &PGReplicationSlotCollector{log: config.logger}, nil
+func NewPGReplicationSlotCollector(config CollectorConfig) (Collector, error) {
+	return &PGReplicationSlotCollector{log: config.Logger}, nil
 }
 
 var (

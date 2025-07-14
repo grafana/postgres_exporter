@@ -33,13 +33,13 @@ type PGDatabaseCollector struct {
 	excludedDatabases []string
 }
 
-func NewPGDatabaseCollector(config collectorConfig) (Collector, error) {
-	exclude := config.excludeDatabases
+func NewPGDatabaseCollector(config CollectorConfig) (Collector, error) {
+	exclude := config.ExcludeDatabases
 	if exclude == nil {
 		exclude = []string{}
 	}
 	return &PGDatabaseCollector{
-		log:               config.logger,
+		log:               config.Logger,
 		excludedDatabases: exclude,
 	}, nil
 }

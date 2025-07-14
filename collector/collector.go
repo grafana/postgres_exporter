@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	factories              = make(map[string]func(collectorConfig) (Collector, error))
+	factories              = make(map[string]func(CollectorConfig) (Collector, error))
 	initiatedCollectorsMtx = sync.Mutex{}
 	initiatedCollectors    = make(map[string]Collector)
 	collectorState         = make(map[string]*bool)
@@ -62,12 +62,12 @@ type Collector interface {
 	Update(ctx context.Context, instance *instance, ch chan<- prometheus.Metric) error
 }
 
-type collectorConfig struct {
-	logger           *slog.Logger
-	excludeDatabases []string
+type CollectorConfig struct {
+	Logger           *slog.Logger
+	ExcludeDatabases []string
 }
 
-func registerCollector(name string, isDefaultEnabled bool, createFunc func(collectorConfig) (Collector, error)) {
+func registerCollector(name string, isDefaultEnabled bool, createFunc func(CollectorConfig) (Collector, error)) {
 	var helpDefaultState string
 	if isDefaultEnabled {
 		helpDefaultState = "enabled"
@@ -131,9 +131,9 @@ func NewPostgresCollector(logger *slog.Logger, excludeDatabases []string, dsn st
 		if collector, ok := initiatedCollectors[key]; ok {
 			collectors[key] = collector
 		} else {
-			collector, err := factories[key](collectorConfig{
-				logger:           logger.With("collector", key),
-				excludeDatabases: excludeDatabases,
+			collector, err := factories[key](CollectorConfig{
+				Logger:           logger.With("collector", key),
+				ExcludeDatabases: excludeDatabases,
 			})
 			if err != nil {
 				return nil, err

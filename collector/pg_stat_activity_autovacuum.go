@@ -30,8 +30,8 @@ type PGStatActivityAutovacuumCollector struct {
 	log *slog.Logger
 }
 
-func NewPGStatActivityAutovacuumCollector(config collectorConfig) (Collector, error) {
-	return &PGStatActivityAutovacuumCollector{log: config.logger}, nil
+func NewPGStatActivityAutovacuumCollector(config CollectorConfig) (Collector, error) {
+	return &PGStatActivityAutovacuumCollector{log: config.Logger}, nil
 }
 
 var (

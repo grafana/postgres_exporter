@@ -45,9 +45,9 @@ func NewProbeCollector(logger *slog.Logger, excludeDatabases []string, registry 
 			collectors[key] = collector
 		} else {
 			collector, err := factories[key](
-				collectorConfig{
-					logger:           logger.With("collector", key),
-					excludeDatabases: excludeDatabases,
+				CollectorConfig{
+					Logger:           logger.With("collector", key),
+					ExcludeDatabases: excludeDatabases,
 				})
 			if err != nil {
 				return nil, err

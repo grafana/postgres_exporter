@@ -31,8 +31,8 @@ type PGXlogLocationCollector struct {
 	log *slog.Logger
 }
 
-func NewPGXlogLocationCollector(config collectorConfig) (Collector, error) {
-	return &PGXlogLocationCollector{log: config.logger}, nil
+func NewPGXlogLocationCollector(config CollectorConfig) (Collector, error) {
+	return &PGXlogLocationCollector{log: config.Logger}, nil
 }
 
 var (

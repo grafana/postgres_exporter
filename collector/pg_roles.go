@@ -31,9 +31,9 @@ type PGRolesCollector struct {
 	log *slog.Logger
 }
 
-func NewPGRolesCollector(config collectorConfig) (Collector, error) {
+func NewPGRolesCollector(config CollectorConfig) (Collector, error) {
 	return &PGRolesCollector{
-		log: config.logger,
+		log: config.Logger,
 	}, nil
 }
 

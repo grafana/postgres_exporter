@@ -31,8 +31,8 @@ type PGStatIOUserTablesCollector struct {
 	log *slog.Logger
 }
 
-func NewPGStatIOUserTablesCollector(config collectorConfig) (Collector, error) {
-	return &PGStatIOUserTablesCollector{log: config.logger}, nil
+func NewPGStatIOUserTablesCollector(config CollectorConfig) (Collector, error) {
+	return &PGStatIOUserTablesCollector{log: config.Logger}, nil
 }
 
 var (
