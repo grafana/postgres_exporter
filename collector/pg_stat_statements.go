@@ -16,6 +16,7 @@ package collector
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 
 	"github.com/alecthomas/kingpin/v2"
@@ -50,6 +51,8 @@ func init() {
 
 type PGStatStatementsCollector struct {
 	log *slog.Logger
+	includeQueryStatement bool
+	statementLength       uint
 }
 
 func NewPGStatStatementsCollector(config collectorConfig) (Collector, error) {
