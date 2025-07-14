@@ -57,7 +57,7 @@ type PGStatStatementsCollector struct {
 
 func NewPGStatStatementsCollector(config CollectorConfig) (Collector, error) {
 	return &PGStatStatementsCollector{
-		log:                   config.logger,
+		log:                   config.Logger,
 		includeQueryStatement: *includeQueryFlag,
 		statementLength:       *statementLengthFlag,
 	}, nil
