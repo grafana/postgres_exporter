@@ -87,7 +87,7 @@ type PostgresCollector struct {
 type Option func(*PostgresCollector) error
 
 // NewPostgresCollector creates a new PostgresCollector.
-func NewPostgresCollector(logger log.Logger, excludeDatabases []string, dsn string, enabledCollectors []string, options ...Option) (*PostgresCollector, error) {
+func NewPostgresCollector(logger *slog.Logger, excludeDatabases []string, dsn string, enabledCollectors []string, options ...Option) (*PostgresCollector, error) {
 	p := &PostgresCollector{
 		logger: logger,
 	}

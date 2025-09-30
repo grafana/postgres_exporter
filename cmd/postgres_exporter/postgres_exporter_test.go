@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/blang/semver/v4"
-	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/promslog"
 	. "gopkg.in/check.v1"
 )
 
@@ -55,7 +55,7 @@ func (s *FunctionalSuite) TestSemanticVersionColumnDiscard(c *C) {
 
 	{
 		// No metrics should be eliminated
-		resultMap := makeDescMap(semver.MustParse("0.0.1"), prometheus.Labels{}, testMetricMap, log.NewLogfmtLogger(os.Stderr), "pg")
+		resultMap := makeDescMap(semver.MustParse("0.0.1"), prometheus.Labels{}, testMetricMap, promslog.New(&promslog.Config{}), "pg")
 		c.Check(
 			resultMap["test_namespace"].columnMappings["metric_which_stays"].discard,
 			Equals,
@@ -76,7 +76,7 @@ func (s *FunctionalSuite) TestSemanticVersionColumnDiscard(c *C) {
 		testMetricMap["test_namespace"].columnMappings["metric_which_discards"] = discardableMetric
 
 		// Discard metric should be discarded
-		resultMap := makeDescMap(semver.MustParse("0.0.1"), prometheus.Labels{}, testMetricMap, log.NewLogfmtLogger(os.Stderr), "pg")
+		resultMap := makeDescMap(semver.MustParse("0.0.1"), prometheus.Labels{}, testMetricMap, promslog.New(&promslog.Config{}), "pg")
 		c.Check(
 			resultMap["test_namespace"].columnMappings["metric_which_stays"].discard,
 			Equals,
@@ -97,7 +97,7 @@ func (s *FunctionalSuite) TestSemanticVersionColumnDiscard(c *C) {
 		testMetricMap["test_namespace"].columnMappings["metric_which_discards"] = discardableMetric
 
 		// Discard metric should be discarded
-		resultMap := makeDescMap(semver.MustParse("0.0.2"), prometheus.Labels{}, testMetricMap, log.NewLogfmtLogger(os.Stderr), "pg")
+		resultMap := makeDescMap(semver.MustParse("0.0.2"), prometheus.Labels{}, testMetricMap, promslog.New(&promslog.Config{}), "pg")
 		c.Check(
 			resultMap["test_namespace"].columnMappings["metric_which_stays"].discard,
 			Equals,
@@ -411,7 +411,7 @@ func (s *FunctionalSuite) TestBooleanConversionToValueAndString(c *C) {
 func (s *FunctionalSuite) TestParseUserQueries(c *C) {
 	userQueriesData, err := os.ReadFile("./tests/user_queries_ok.yaml")
 	if err == nil {
-		metricMaps, newQueryOverrides, err := parseUserQueries(userQueriesData, log.NewLogfmtLogger(os.Stderr))
+		metricMaps, newQueryOverrides, err := parseUserQueries(userQueriesData, promslog.New(&promslog.Config{}))
 		c.Assert(err, Equals, nil)
 		c.Assert(metricMaps, NotNil)
 		c.Assert(newQueryOverrides, NotNil)
