@@ -28,7 +28,7 @@ func init() {
 type PGReplicationCollector struct {
 }
 
-func NewPGReplicationCollector(collectorConfig) (Collector, error) {
+func NewPGReplicationCollector(CollectorConfig) (Collector, error) {
 	return &PGReplicationCollector{}, nil
 }
 

@@ -34,8 +34,8 @@ type PGStatCheckpointerCollector struct {
 	log *slog.Logger
 }
 
-func NewPGStatCheckpointerCollector(config collectorConfig) (Collector, error) {
-	return &PGStatCheckpointerCollector{log: config.logger}, nil
+func NewPGStatCheckpointerCollector(config CollectorConfig) (Collector, error) {
+	return &PGStatCheckpointerCollector{log: config.Logger}, nil
 }
 
 var (

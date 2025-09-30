@@ -30,8 +30,8 @@ type PGLongRunningTransactionsCollector struct {
 	log *slog.Logger
 }
 
-func NewPGLongRunningTransactionsCollector(config collectorConfig) (Collector, error) {
-	return &PGLongRunningTransactionsCollector{log: config.logger}, nil
+func NewPGLongRunningTransactionsCollector(config CollectorConfig) (Collector, error) {
+	return &PGLongRunningTransactionsCollector{log: config.Logger}, nil
 }
 
 var (

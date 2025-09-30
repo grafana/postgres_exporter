@@ -28,7 +28,7 @@ func init() {
 type PGWALCollector struct {
 }
 
-func NewPGWALCollector(config collectorConfig) (Collector, error) {
+func NewPGWALCollector(config CollectorConfig) (Collector, error) {
 	return &PGWALCollector{}, nil
 }
 

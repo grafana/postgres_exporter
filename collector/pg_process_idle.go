@@ -33,8 +33,8 @@ type PGProcessIdleCollector struct {
 
 const processIdleSubsystem = "process_idle"
 
-func NewPGProcessIdleCollector(config collectorConfig) (Collector, error) {
-	return &PGProcessIdleCollector{log: config.logger}, nil
+func NewPGProcessIdleCollector(config CollectorConfig) (Collector, error) {
+	return &PGProcessIdleCollector{log: config.Logger}, nil
 }
 
 var pgProcessIdleSeconds = prometheus.NewDesc(

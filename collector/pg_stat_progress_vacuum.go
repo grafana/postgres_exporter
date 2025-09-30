@@ -31,8 +31,8 @@ type PGStatProgressVacuumCollector struct {
 	log *slog.Logger
 }
 
-func NewPGStatProgressVacuumCollector(config collectorConfig) (Collector, error) {
-	return &PGStatProgressVacuumCollector{log: config.logger}, nil
+func NewPGStatProgressVacuumCollector(config CollectorConfig) (Collector, error) {
+	return &PGStatProgressVacuumCollector{log: config.Logger}, nil
 }
 
 var vacuumPhases = []string{

@@ -30,8 +30,8 @@ type PGStatioUserIndexesCollector struct {
 
 const statioUserIndexesSubsystem = "statio_user_indexes"
 
-func NewPGStatioUserIndexesCollector(config collectorConfig) (Collector, error) {
-	return &PGStatioUserIndexesCollector{log: config.logger}, nil
+func NewPGStatioUserIndexesCollector(config CollectorConfig) (Collector, error) {
+	return &PGStatioUserIndexesCollector{log: config.Logger}, nil
 }
 
 var (

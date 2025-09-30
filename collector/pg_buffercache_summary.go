@@ -39,9 +39,9 @@ type BuffercacheSummaryCollector struct {
 	log *slog.Logger
 }
 
-func NewBuffercacheSummaryCollector(config collectorConfig) (Collector, error) {
+func NewBuffercacheSummaryCollector(config CollectorConfig) (Collector, error) {
 	return &BuffercacheSummaryCollector{
-		log: config.logger,
+		log: config.Logger,
 	}, nil
 }
 
