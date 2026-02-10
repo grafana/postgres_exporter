@@ -26,12 +26,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+type StatStatementsConfig struct {
+	IncludeQuery     bool
+	QueryLength      uint
+	Limit            uint
+	ExcludeDatabases []string
+	ExcludeUsers     []string
+}
+
 var (
-	factories              = make(map[string]func(collectorConfig) (Collector, error))
-	initiatedCollectorsMtx = sync.Mutex{}
-	initiatedCollectors    = make(map[string]Collector)
-	collectorState         = make(map[string]*bool)
-	forcedCollectors       = map[string]bool{} // collectors which have been explicitly enabled or disabled
+	factories        = make(map[string]func(collectorConfig) (Collector, error))
+	collectorState   = make(map[string]*bool)
+	forcedCollectors = map[string]bool{} // collectors which have been explicitly enabled or disabled
 )
 
 const (
@@ -65,6 +71,8 @@ type Collector interface {
 type collectorConfig struct {
 	logger           *slog.Logger
 	excludeDatabases []string
+
+	statStatementsConfig *StatStatementsConfig
 }
 
 func registerCollector(name string, isDefaultEnabled bool, createFunc func(collectorConfig) (Collector, error)) {
@@ -83,6 +91,8 @@ type PostgresCollector struct {
 
 	instance          *instance
 	CollectionTimeout time.Duration
+
+	statStatementsConfig *StatStatementsConfig
 }
 
 type Option func(*PostgresCollector) error
@@ -100,40 +110,34 @@ func NewPostgresCollector(logger *slog.Logger, excludeDatabases []string, dsn st
 		}
 	}
 
-	collectorsToStart := map[string]struct{}{}
-	if len(enabledCollectors) == 0 {
-		for name, enabledByDefault := range collectorState {
-			if *enabledByDefault {
-				collectorsToStart[name] = struct{}{}
-			}
+	f := make(map[string]bool)
+	for _, name := range enabledCollectors {
+		_, exist := collectorState[name]
+		if !exist {
+			return nil, fmt.Errorf("requested to enable an unknown collector: %s", name)
 		}
-	} else {
-		for _, name := range enabledCollectors {
-			_, exist := collectorState[name]
-			if !exist {
-				return nil, fmt.Errorf("requested to enable an unknown collector: %s", name)
-			}
-			collectorsToStart[name] = struct{}{}
-		}
+		f[name] = true
 	}
-
 	collectors := make(map[string]Collector)
-	initiatedCollectorsMtx.Lock()
-	defer initiatedCollectorsMtx.Unlock()
-	for key := range collectorsToStart {
-		if collector, ok := initiatedCollectors[key]; ok {
-			collectors[key] = collector
-		} else {
-			collector, err := factories[key](collectorConfig{
-				logger:           logger.With("collector", key),
-				excludeDatabases: excludeDatabases,
-			})
-			if err != nil {
-				return nil, err
+	for key, enabled := range collectorState {
+		// When enabledCollectors are specified, only start those collectors (regardless of default enabled state).
+		// When no enabledCollectors are specified, start all collectors that are enabled by default.
+		if len(f) > 0 {
+			if !f[key] {
+				continue
 			}
-			collectors[key] = collector
-			initiatedCollectors[key] = collector
+		} else if !*enabled {
+			continue
 		}
+		collector, err := factories[key](collectorConfig{
+			logger:               logger.With("collector", key),
+			excludeDatabases:     excludeDatabases,
+			statStatementsConfig: p.statStatementsConfig,
+		})
+		if err != nil {
+			return nil, err
+		}
+		collectors[key] = collector
 	}
 
 	p.Collectors = collectors
@@ -161,6 +165,13 @@ func WithCollectionTimeout(s string) Option {
 			return errors.New("timeout must be greater than 1ms")
 		}
 		e.CollectionTimeout = duration
+		return nil
+	}
+}
+
+func WithStatStatementsConfig(cfg StatStatementsConfig) Option {
+	return func(e *PostgresCollector) error {
+		e.statStatementsConfig = &cfg
 		return nil
 	}
 }
