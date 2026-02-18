@@ -37,7 +37,10 @@ func querySettings(ch chan<- prometheus.Metric, server *Server) error {
 	//
 	// NOTE: If you add more vartypes here, you must update the supported
 	// types in normaliseUnit() below
-	query := "SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name != 'sync_commit_cancel_wait';"
+	//
+	// `google_dataplex.max_messages` is a custom setting for Google Cloud SQL for Dataplex
+	// See: https://github.com/grafana/alloy/issues/5502, https://github.com/prometheus-community/postgres_exporter/issues/1240
+	query := "SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');"
 
 	rows, err := server.db.Query(query)
 	if err != nil {
