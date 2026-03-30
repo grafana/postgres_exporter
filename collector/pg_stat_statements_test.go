@@ -369,8 +369,8 @@ func TestPGStateStatementsCollector_PG16(t *testing.T) {
 
 	// Compute expected timing using runtime float64 arithmetic to match the
 	// collector's sequential += additions (avoids constant-expression precision differences).
-	var sharedRead, tempRead float64 = 0.1, 0.3
-	var sharedWrite, tempWrite float64 = 0.2, 0.4
+	var sharedRead, tempRead = 0.1, 0.3
+	var sharedWrite, tempWrite = 0.2, 0.4
 	expected := expectedMetrics(sharedRead+tempRead, sharedWrite+tempWrite)
 
 	convey.Convey("Metrics comparison", t, func() {
@@ -417,8 +417,8 @@ func TestPGStateStatementsCollector_PG16_WithStatement(t *testing.T) {
 
 	// Compute expected timing using runtime float64 arithmetic to match the
 	// collector's sequential += additions (avoids constant-expression precision differences).
-	var sharedRead, tempRead float64 = 0.1, 0.3
-	var sharedWrite, tempWrite float64 = 0.2, 0.4
+	var sharedRead, tempRead = 0.1, 0.3
+	var sharedWrite, tempWrite = 0.2, 0.4
 	expected := append(expectedMetrics(sharedRead+tempRead, sharedWrite+tempWrite),
 		MetricResult{labels: labelMap{"queryid": "1500", "query": "select 1 from foo"}, metricType: dto.MetricType_COUNTER, value: 1},
 	)
@@ -466,8 +466,8 @@ func TestPGStateStatementsCollector_PG17(t *testing.T) {
 
 	// Compute expected timing using runtime float64 arithmetic to match the
 	// collector's sequential += additions (avoids constant-expression precision differences).
-	var sharedRead, tempRead, localRead float64 = 0.1, 0.3, 0.05
-	var sharedWrite, tempWrite, localWrite float64 = 0.2, 0.4, 0.06
+	var sharedRead, tempRead, localRead = 0.1, 0.3, 0.05
+	var sharedWrite, tempWrite, localWrite = 0.2, 0.4, 0.06
 	expected := expectedMetrics(sharedRead+tempRead+localRead, sharedWrite+tempWrite+localWrite)
 
 	convey.Convey("Metrics comparison", t, func() {
@@ -515,8 +515,8 @@ func TestPGStateStatementsCollector_PG17_WithStatement(t *testing.T) {
 
 	// Compute expected timing using runtime float64 arithmetic to match the
 	// collector's sequential += additions (avoids constant-expression precision differences).
-	var sharedRead, tempRead, localRead float64 = 0.1, 0.3, 0.05
-	var sharedWrite, tempWrite, localWrite float64 = 0.2, 0.4, 0.06
+	var sharedRead, tempRead, localRead = 0.1, 0.3, 0.05
+	var sharedWrite, tempWrite, localWrite = 0.2, 0.4, 0.06
 	expected := append(expectedMetrics(sharedRead+tempRead+localRead, sharedWrite+tempWrite+localWrite),
 		MetricResult{labels: labelMap{"queryid": "1500", "query": "select 1 from foo"}, metricType: dto.MetricType_COUNTER, value: 1},
 	)
