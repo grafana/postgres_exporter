@@ -82,6 +82,9 @@ var (
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
+	// Shared block I/O timing. In PG 17+ this maps to shared_blk_read/write_time;
+	// in earlier versions it maps to the legacy blk_read/write_time columns which
+	// only tracked shared blocks.
 	statStatementsBlockReadSecondsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, statStatementsSubsystem, "block_read_seconds_total"),
 		"Total time the statement spent reading shared blocks, in seconds",
@@ -94,18 +97,20 @@ var (
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
+	// Temp block I/O timing — available from PG 16.
 	statStatementsTempBlockReadSecondsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, statStatementsSubsystem, "temp_block_read_seconds_total"),
-		"Total time the statement spent reading temporary file blocks, in seconds (if track_io_timing is enabled, otherwise zero)",
+		"Total time the statement spent reading temporary file blocks, in seconds (if track_io_timing is enabled, otherwise zero). Available from PostgreSQL 16.",
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
 	statStatementsTempBlockWriteSecondsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, statStatementsSubsystem, "temp_block_write_seconds_total"),
-		"Total time the statement spent writing temporary file blocks, in seconds (if track_io_timing is enabled, otherwise zero)",
+		"Total time the statement spent writing temporary file blocks, in seconds (if track_io_timing is enabled, otherwise zero). Available from PostgreSQL 16.",
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
+	// Local block I/O timing — available from PG 17.
 	statStatementsLocalBlockReadSecondsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, statStatementsSubsystem, "local_block_read_seconds_total"),
 		"Total time the statement spent reading local blocks, in seconds (if track_io_timing is enabled, otherwise zero). Available from PostgreSQL 17.",
@@ -118,63 +123,34 @@ var (
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
-	statStatementsSharedBlksHitTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "shared_blks_hit_total"),
-		"Total number of shared block cache hits by the statement",
+
+	// Aggregated block I/O counts. The raw per-pool columns are selected from
+	// pg_stat_statements and aggregated in Go:
+	//   blks_read_total    = shared + local + temp reads
+	//   blks_written_total = shared + local + temp writes
+	//   blks_hit_total     = shared + local hits  (temp has no hit column)
+	//   blks_dirtied_total = shared + local dirtied (temp has no dirtied column)
+	statStatementsBlksReadTotal = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, statStatementsSubsystem, "blks_read_total"),
+		"Total number of blocks read by the statement (shared + local + temp)",
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
-	statStatementsSharedBlksReadTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "shared_blks_read_total"),
-		"Total number of shared blocks read by the statement",
+	statStatementsBlksWrittenTotal = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, statStatementsSubsystem, "blks_written_total"),
+		"Total number of blocks written by the statement (shared + local + temp)",
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
-	statStatementsSharedBlksDirtiedTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "shared_blks_dirtied_total"),
-		"Total number of shared blocks dirtied by the statement",
+	statStatementsBlksHitTotal = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, statStatementsSubsystem, "blks_hit_total"),
+		"Total number of block cache hits by the statement (shared + local)",
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
-	statStatementsSharedBlksWrittenTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "shared_blks_written_total"),
-		"Total number of shared blocks written by the statement",
-		[]string{"user", "datname", "queryid"},
-		prometheus.Labels{},
-	)
-	statStatementsLocalBlksHitTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "local_blks_hit_total"),
-		"Total number of local block cache hits by the statement",
-		[]string{"user", "datname", "queryid"},
-		prometheus.Labels{},
-	)
-	statStatementsLocalBlksReadTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "local_blks_read_total"),
-		"Total number of local blocks read by the statement",
-		[]string{"user", "datname", "queryid"},
-		prometheus.Labels{},
-	)
-	statStatementsLocalBlksDirtiedTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "local_blks_dirtied_total"),
-		"Total number of local blocks dirtied by the statement",
-		[]string{"user", "datname", "queryid"},
-		prometheus.Labels{},
-	)
-	statStatementsLocalBlksWrittenTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "local_blks_written_total"),
-		"Total number of local blocks written by the statement",
-		[]string{"user", "datname", "queryid"},
-		prometheus.Labels{},
-	)
-	statStatementsTempBlksReadTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "temp_blks_read_total"),
-		"Total number of temp blocks read by the statement",
-		[]string{"user", "datname", "queryid"},
-		prometheus.Labels{},
-	)
-	statStatementsTempBlksWrittenTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "temp_blks_written_total"),
-		"Total number of temp blocks written by the statement",
+	statStatementsBlksDirtiedTotal = prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, statStatementsSubsystem, "blks_dirtied_total"),
+		"Total number of blocks dirtied by the statement (shared + local)",
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
@@ -187,7 +163,11 @@ var (
 	)
 )
 
-// Block count columns present in all supported PostgreSQL versions.
+// pgStatStatementsBlockCounts selects the individual per-pool block I/O count
+// columns. The dirtied columns were added in PG 9.2; since the collector
+// already requires PG 9.4+ (for queryid), all ten columns are safe to select
+// in every query variant. Aggregation is performed in Go to keep the SQL
+// free of arithmetic expressions.
 const pgStatStatementsBlockCounts = `
 		pg_stat_statements.shared_blks_hit,
 		pg_stat_statements.shared_blks_read,
@@ -251,7 +231,7 @@ const (
 	ORDER BY seconds_total DESC
 	LIMIT 100;`
 
-	// PG 16: adds temp_blk_read_time / temp_blk_write_time (not present in PG < 16).
+	// PG 16: adds temp_blk_read_time / temp_blk_write_time.
 	pgStatStatementsQuery_PG16 = `SELECT
 		pg_get_userbyid(userid) as user,
 		pg_database.datname,
@@ -278,8 +258,8 @@ const (
 	LIMIT 100;`
 
 	// PG 17+: blk_read_time / blk_write_time were renamed to shared_blk_read_time /
-	// shared_blk_write_time, and new local_blk_read_time / local_blk_write_time columns
-	// were added.
+	// shared_blk_write_time, and new local_blk_read_time / local_blk_write_time
+	// columns were added.
 	pgStatStatementsQuery_PG17 = `SELECT
 		pg_get_userbyid(userid) as user,
 		pg_database.datname,
@@ -341,10 +321,10 @@ func (c PGStatStatementsCollector) Update(ctx context.Context, instance *instanc
 	for rows.Next() {
 		var user, datname, queryid, statement sql.NullString
 		var callsTotal, rowsTotal sql.NullInt64
-		var secondsTotal, blockReadSecondsTotal, blockWriteSecondsTotal sql.NullFloat64
 		var sharedBlksHit, sharedBlksRead, sharedBlksDirtied, sharedBlksWritten sql.NullInt64
 		var localBlksHit, localBlksRead, localBlksDirtied, localBlksWritten sql.NullInt64
 		var tempBlksRead, tempBlksWritten sql.NullInt64
+		var secondsTotal, blockReadSecondsTotal, blockWriteSecondsTotal sql.NullFloat64
 		var tempBlockReadSecondsTotal, tempBlockWriteSecondsTotal sql.NullFloat64
 		var localBlockReadSecondsTotal, localBlockWriteSecondsTotal sql.NullFloat64
 
@@ -416,113 +396,67 @@ func (c PGStatStatementsCollector) Update(ctx context.Context, instance *instanc
 			userLabel, datnameLabel, queryidLabel,
 		)
 
-		sharedBlksHitMetric := 0.0
-		if sharedBlksHit.Valid {
-			sharedBlksHitMetric = float64(sharedBlksHit.Int64)
-		}
-		ch <- prometheus.MustNewConstMetric(
-			statStatementsSharedBlksHitTotal,
-			prometheus.CounterValue,
-			sharedBlksHitMetric,
-			userLabel, datnameLabel, queryidLabel,
-		)
-
-		sharedBlksReadMetric := 0.0
+		// Aggregate raw block counts across pool types.
+		blksReadTotal := int64(0)
 		if sharedBlksRead.Valid {
-			sharedBlksReadMetric = float64(sharedBlksRead.Int64)
+			blksReadTotal += sharedBlksRead.Int64
 		}
-		ch <- prometheus.MustNewConstMetric(
-			statStatementsSharedBlksReadTotal,
-			prometheus.CounterValue,
-			sharedBlksReadMetric,
-			userLabel, datnameLabel, queryidLabel,
-		)
-
-		sharedBlksDirtiedMetric := 0.0
-		if sharedBlksDirtied.Valid {
-			sharedBlksDirtiedMetric = float64(sharedBlksDirtied.Int64)
-		}
-		ch <- prometheus.MustNewConstMetric(
-			statStatementsSharedBlksDirtiedTotal,
-			prometheus.CounterValue,
-			sharedBlksDirtiedMetric,
-			userLabel, datnameLabel, queryidLabel,
-		)
-
-		sharedBlksWrittenMetric := 0.0
-		if sharedBlksWritten.Valid {
-			sharedBlksWrittenMetric = float64(sharedBlksWritten.Int64)
-		}
-		ch <- prometheus.MustNewConstMetric(
-			statStatementsSharedBlksWrittenTotal,
-			prometheus.CounterValue,
-			sharedBlksWrittenMetric,
-			userLabel, datnameLabel, queryidLabel,
-		)
-
-		localBlksHitMetric := 0.0
-		if localBlksHit.Valid {
-			localBlksHitMetric = float64(localBlksHit.Int64)
-		}
-		ch <- prometheus.MustNewConstMetric(
-			statStatementsLocalBlksHitTotal,
-			prometheus.CounterValue,
-			localBlksHitMetric,
-			userLabel, datnameLabel, queryidLabel,
-		)
-
-		localBlksReadMetric := 0.0
 		if localBlksRead.Valid {
-			localBlksReadMetric = float64(localBlksRead.Int64)
+			blksReadTotal += localBlksRead.Int64
 		}
-		ch <- prometheus.MustNewConstMetric(
-			statStatementsLocalBlksReadTotal,
-			prometheus.CounterValue,
-			localBlksReadMetric,
-			userLabel, datnameLabel, queryidLabel,
-		)
-
-		localBlksDirtiedMetric := 0.0
-		if localBlksDirtied.Valid {
-			localBlksDirtiedMetric = float64(localBlksDirtied.Int64)
-		}
-		ch <- prometheus.MustNewConstMetric(
-			statStatementsLocalBlksDirtiedTotal,
-			prometheus.CounterValue,
-			localBlksDirtiedMetric,
-			userLabel, datnameLabel, queryidLabel,
-		)
-
-		localBlksWrittenMetric := 0.0
-		if localBlksWritten.Valid {
-			localBlksWrittenMetric = float64(localBlksWritten.Int64)
-		}
-		ch <- prometheus.MustNewConstMetric(
-			statStatementsLocalBlksWrittenTotal,
-			prometheus.CounterValue,
-			localBlksWrittenMetric,
-			userLabel, datnameLabel, queryidLabel,
-		)
-
-		tempBlksReadMetric := 0.0
 		if tempBlksRead.Valid {
-			tempBlksReadMetric = float64(tempBlksRead.Int64)
+			blksReadTotal += tempBlksRead.Int64
 		}
 		ch <- prometheus.MustNewConstMetric(
-			statStatementsTempBlksReadTotal,
+			statStatementsBlksReadTotal,
 			prometheus.CounterValue,
-			tempBlksReadMetric,
+			float64(blksReadTotal),
 			userLabel, datnameLabel, queryidLabel,
 		)
 
-		tempBlksWrittenMetric := 0.0
+		blksWrittenTotal := int64(0)
+		if sharedBlksWritten.Valid {
+			blksWrittenTotal += sharedBlksWritten.Int64
+		}
+		if localBlksWritten.Valid {
+			blksWrittenTotal += localBlksWritten.Int64
+		}
 		if tempBlksWritten.Valid {
-			tempBlksWrittenMetric = float64(tempBlksWritten.Int64)
+			blksWrittenTotal += tempBlksWritten.Int64
 		}
 		ch <- prometheus.MustNewConstMetric(
-			statStatementsTempBlksWrittenTotal,
+			statStatementsBlksWrittenTotal,
 			prometheus.CounterValue,
-			tempBlksWrittenMetric,
+			float64(blksWrittenTotal),
+			userLabel, datnameLabel, queryidLabel,
+		)
+
+		// temp blocks have no hit or dirtied columns in pg_stat_statements.
+		blksHitTotal := int64(0)
+		if sharedBlksHit.Valid {
+			blksHitTotal += sharedBlksHit.Int64
+		}
+		if localBlksHit.Valid {
+			blksHitTotal += localBlksHit.Int64
+		}
+		ch <- prometheus.MustNewConstMetric(
+			statStatementsBlksHitTotal,
+			prometheus.CounterValue,
+			float64(blksHitTotal),
+			userLabel, datnameLabel, queryidLabel,
+		)
+
+		blksDirtiedTotal := int64(0)
+		if sharedBlksDirtied.Valid {
+			blksDirtiedTotal += sharedBlksDirtied.Int64
+		}
+		if localBlksDirtied.Valid {
+			blksDirtiedTotal += localBlksDirtied.Int64
+		}
+		ch <- prometheus.MustNewConstMetric(
+			statStatementsBlksDirtiedTotal,
+			prometheus.CounterValue,
+			float64(blksDirtiedTotal),
 			userLabel, datnameLabel, queryidLabel,
 		)
 

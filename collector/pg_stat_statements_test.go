@@ -33,7 +33,9 @@ func toDriverValues(values []any) []driver.Value {
 	return dv
 }
 
-// baseColumns are the columns present in all supported PG versions.
+// baseColumns are the result columns present in all supported PG versions.
+// The ten raw block count columns are selected individually; aggregation
+// happens in Go, so the SQL query is free of arithmetic operators.
 var baseColumns = []string{
 	"user", "datname", "queryid",
 	"calls_total", "seconds_total", "rows_total",
@@ -46,24 +48,30 @@ var baseColumns = []string{
 var tempIOTimingColumns = []string{"temp_block_read_seconds_total", "temp_block_write_seconds_total"}
 var localIOTimingColumns = []string{"local_block_read_seconds_total", "local_block_write_seconds_total"}
 
-// baseRow is a full row of data for all versions, without temp/local timing.
-var baseRow = []any{"postgres", "postgres", 1500, 5, 0.4, 100, 10, 20, 5, 15, 2, 3, 1, 4, 6, 7, 0.1, 0.2}
+// baseRow provides one row of test data aligned with baseColumns.
+// Block counts:
+//
+//	shared: hit=3, read=5, dirtied=2, written=4
+//	local:  hit=1, read=2, dirtied=1, written=1
+//	temp:   read=3, written=2
+//
+// Aggregated expectations:
+//
+//	blks_read_total    = 5+2+3 = 10
+//	blks_written_total = 4+1+2 = 7
+//	blks_hit_total     = 3+1   = 4   (no temp hit column)
+//	blks_dirtied_total = 2+1   = 3   (no temp dirtied column)
+var baseRow = []any{"postgres", "postgres", 1500, 5, 0.4, 100, 3, 5, 2, 4, 1, 2, 1, 1, 3, 2, 0.1, 0.2}
 
-// baseExpected is the ordered list of metric results for a base row.
+// baseExpected is the ordered list of MetricResults for a baseRow.
 var baseExpected = []MetricResult{
 	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 5},    // calls
 	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.4},   // seconds
 	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 100},   // rows
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 10},    // shared_blks_hit
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 20},    // shared_blks_read
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 5},     // shared_blks_dirtied
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 15},    // shared_blks_written
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 2},     // local_blks_hit
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 3},     // local_blks_read
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 1},     // local_blks_dirtied
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 4},     // local_blks_written
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 6},     // temp_blks_read
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 7},     // temp_blks_written
+	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 10},    // blks_read (5+2+3)
+	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 7},     // blks_written (4+1+2)
+	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 4},     // blks_hit (3+1)
+	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 3},     // blks_dirtied (2+1)
 	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.1},   // block_read_seconds
 	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.2},   // block_write_seconds
 }
@@ -119,9 +127,14 @@ func TestPGStateStatementsCollectorWithStatement(t *testing.T) {
 
 	inst := &instance{db: db, version: semver.MustParse("12.0.0")}
 
-	stmtColumns := append([]string{"user", "datname", "queryid", "LEFT(pg_stat_statements.query, 100) as query"},
-		baseColumns[3:]...)
-	stmtRow := append([]any{"postgres", "postgres", 1500, "select 1 from foo"}, baseRow[3:]...)
+	stmtColumns := make([]string, 0, 1+len(baseColumns))
+	stmtColumns = append(stmtColumns, "user", "datname", "queryid", "LEFT(pg_stat_statements.query, 100) as query")
+	stmtColumns = append(stmtColumns, baseColumns[3:]...)
+
+	stmtRow := make([]any, 0, 1+len(baseRow))
+	stmtRow = append(stmtRow, "postgres", "postgres", 1500, "select 1 from foo")
+	stmtRow = append(stmtRow, baseRow[3:]...)
+
 	rows := sqlmock.NewRows(stmtColumns).AddRow(toDriverValues(stmtRow)...)
 	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery, fmt.Sprintf(pgStatStatementQuerySelect, 100)))).WillReturnRows(rows)
 
@@ -134,7 +147,9 @@ func TestPGStateStatementsCollectorWithStatement(t *testing.T) {
 		}
 	}()
 
-	queryExpected := append(baseExpected,
+	queryExpected := make([]MetricResult, 0, len(baseExpected)+1)
+	queryExpected = append(queryExpected, baseExpected...)
+	queryExpected = append(queryExpected,
 		MetricResult{labels: labelMap{"queryid": "1500", "query": "select 1 from foo"}, metricType: dto.MetricType_COUNTER, value: 1},
 	)
 
@@ -200,9 +215,11 @@ func TestPGStateStatementsCollectorNullWithStatement(t *testing.T) {
 
 	inst := &instance{db: db, version: semver.MustParse("13.3.7")}
 
-	stmtColumns := append([]string{"user", "datname", "queryid", "LEFT(pg_stat_statements.query, 200) as query"},
-		baseColumns[3:]...)
+	stmtColumns := make([]string, 0, 1+len(baseColumns))
+	stmtColumns = append(stmtColumns, "user", "datname", "queryid", "LEFT(pg_stat_statements.query, 200) as query")
+	stmtColumns = append(stmtColumns, baseColumns[3:]...)
 	nullRow := make([]any, len(stmtColumns))
+
 	rows := sqlmock.NewRows(stmtColumns).AddRow(toDriverValues(nullRow)...)
 	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsNewQuery, fmt.Sprintf(pgStatStatementQuerySelect, 200)))).WillReturnRows(rows)
 
@@ -279,9 +296,14 @@ func TestPGStateStatementsCollectorNewPGWithStatement(t *testing.T) {
 
 	inst := &instance{db: db, version: semver.MustParse("13.3.7")}
 
-	stmtColumns := append([]string{"user", "datname", "queryid", "LEFT(pg_stat_statements.query, 300) as query"},
-		baseColumns[3:]...)
-	stmtRow := append([]any{"postgres", "postgres", 1500, "select 1 from foo"}, baseRow[3:]...)
+	stmtColumns := make([]string, 0, 1+len(baseColumns))
+	stmtColumns = append(stmtColumns, "user", "datname", "queryid", "LEFT(pg_stat_statements.query, 300) as query")
+	stmtColumns = append(stmtColumns, baseColumns[3:]...)
+
+	stmtRow := make([]any, 0, 1+len(baseRow))
+	stmtRow = append(stmtRow, "postgres", "postgres", 1500, "select 1 from foo")
+	stmtRow = append(stmtRow, baseRow[3:]...)
+
 	rows := sqlmock.NewRows(stmtColumns).AddRow(toDriverValues(stmtRow)...)
 	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsNewQuery, fmt.Sprintf(pgStatStatementQuerySelect, 300)))).WillReturnRows(rows)
 
@@ -294,7 +316,9 @@ func TestPGStateStatementsCollectorNewPGWithStatement(t *testing.T) {
 		}
 	}()
 
-	queryExpected := append(baseExpected,
+	queryExpected := make([]MetricResult, 0, len(baseExpected)+1)
+	queryExpected = append(queryExpected, baseExpected...)
+	queryExpected = append(queryExpected,
 		MetricResult{labels: labelMap{"queryid": "1500", "query": "select 1 from foo"}, metricType: dto.MetricType_COUNTER, value: 1},
 	)
 
@@ -318,8 +342,14 @@ func TestPGStateStatementsCollector_PG16(t *testing.T) {
 
 	inst := &instance{db: db, version: semver.MustParse("16.0.0")}
 
-	columns := append(baseColumns, tempIOTimingColumns...)
-	row := append(baseRow, 0.3, 0.4)
+	columns := make([]string, 0, len(baseColumns)+len(tempIOTimingColumns))
+	columns = append(columns, baseColumns...)
+	columns = append(columns, tempIOTimingColumns...)
+
+	row := make([]any, 0, len(baseRow)+2)
+	row = append(row, baseRow...)
+	row = append(row, 0.3, 0.4)
+
 	rows := sqlmock.NewRows(columns).AddRow(toDriverValues(row)...)
 	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery_PG16, ""))).WillReturnRows(rows)
 
@@ -332,7 +362,9 @@ func TestPGStateStatementsCollector_PG16(t *testing.T) {
 		}
 	}()
 
-	expected := append(baseExpected, tempIOTimingExpected...)
+	expected := make([]MetricResult, 0, len(baseExpected)+len(tempIOTimingExpected))
+	expected = append(expected, baseExpected...)
+	expected = append(expected, tempIOTimingExpected...)
 
 	convey.Convey("Metrics comparison", t, func() {
 		for _, expect := range expected {
@@ -354,11 +386,16 @@ func TestPGStateStatementsCollector_PG16_WithStatement(t *testing.T) {
 
 	inst := &instance{db: db, version: semver.MustParse("16.0.0")}
 
-	stmtColumns := append(
-		append([]string{"user", "datname", "queryid", "LEFT(pg_stat_statements.query, 300) as query"}, baseColumns[3:]...),
-		tempIOTimingColumns...,
-	)
-	stmtRow := append(append([]any{"postgres", "postgres", 1500, "select 1 from foo"}, baseRow[3:]...), 0.3, 0.4)
+	stmtColumns := make([]string, 0, 1+len(baseColumns)+len(tempIOTimingColumns))
+	stmtColumns = append(stmtColumns, "user", "datname", "queryid", "LEFT(pg_stat_statements.query, 300) as query")
+	stmtColumns = append(stmtColumns, baseColumns[3:]...)
+	stmtColumns = append(stmtColumns, tempIOTimingColumns...)
+
+	stmtRow := make([]any, 0, 1+len(baseRow)+2)
+	stmtRow = append(stmtRow, "postgres", "postgres", 1500, "select 1 from foo")
+	stmtRow = append(stmtRow, baseRow[3:]...)
+	stmtRow = append(stmtRow, 0.3, 0.4)
+
 	rows := sqlmock.NewRows(stmtColumns).AddRow(toDriverValues(stmtRow)...)
 	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery_PG16, fmt.Sprintf(pgStatStatementQuerySelect, 300)))).WillReturnRows(rows)
 
@@ -371,7 +408,10 @@ func TestPGStateStatementsCollector_PG16_WithStatement(t *testing.T) {
 		}
 	}()
 
-	expected := append(append(baseExpected, tempIOTimingExpected...),
+	expected := make([]MetricResult, 0, len(baseExpected)+len(tempIOTimingExpected)+1)
+	expected = append(expected, baseExpected...)
+	expected = append(expected, tempIOTimingExpected...)
+	expected = append(expected,
 		MetricResult{labels: labelMap{"queryid": "1500", "query": "select 1 from foo"}, metricType: dto.MetricType_COUNTER, value: 1},
 	)
 
@@ -395,8 +435,15 @@ func TestPGStateStatementsCollector_PG17(t *testing.T) {
 
 	inst := &instance{db: db, version: semver.MustParse("17.0.0")}
 
-	columns := append(append(baseColumns, tempIOTimingColumns...), localIOTimingColumns...)
-	row := append(append(baseRow, 0.3, 0.4), 0.05, 0.06)
+	columns := make([]string, 0, len(baseColumns)+len(tempIOTimingColumns)+len(localIOTimingColumns))
+	columns = append(columns, baseColumns...)
+	columns = append(columns, tempIOTimingColumns...)
+	columns = append(columns, localIOTimingColumns...)
+
+	row := make([]any, 0, len(baseRow)+4)
+	row = append(row, baseRow...)
+	row = append(row, 0.3, 0.4, 0.05, 0.06)
+
 	rows := sqlmock.NewRows(columns).AddRow(toDriverValues(row)...)
 	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery_PG17, ""))).WillReturnRows(rows)
 
@@ -409,7 +456,10 @@ func TestPGStateStatementsCollector_PG17(t *testing.T) {
 		}
 	}()
 
-	expected := append(append(baseExpected, tempIOTimingExpected...), localIOTimingExpected...)
+	expected := make([]MetricResult, 0, len(baseExpected)+len(tempIOTimingExpected)+len(localIOTimingExpected))
+	expected = append(expected, baseExpected...)
+	expected = append(expected, tempIOTimingExpected...)
+	expected = append(expected, localIOTimingExpected...)
 
 	convey.Convey("Metrics comparison", t, func() {
 		for _, expect := range expected {
@@ -431,14 +481,17 @@ func TestPGStateStatementsCollector_PG17_WithStatement(t *testing.T) {
 
 	inst := &instance{db: db, version: semver.MustParse("17.0.0")}
 
-	stmtColumns := append(
-		append(
-			append([]string{"user", "datname", "queryid", "LEFT(pg_stat_statements.query, 300) as query"}, baseColumns[3:]...),
-			tempIOTimingColumns...,
-		),
-		localIOTimingColumns...,
-	)
-	stmtRow := append(append(append([]any{"postgres", "postgres", 1500, "select 1 from foo"}, baseRow[3:]...), 0.3, 0.4), 0.05, 0.06)
+	stmtColumns := make([]string, 0, 1+len(baseColumns)+len(tempIOTimingColumns)+len(localIOTimingColumns))
+	stmtColumns = append(stmtColumns, "user", "datname", "queryid", "LEFT(pg_stat_statements.query, 300) as query")
+	stmtColumns = append(stmtColumns, baseColumns[3:]...)
+	stmtColumns = append(stmtColumns, tempIOTimingColumns...)
+	stmtColumns = append(stmtColumns, localIOTimingColumns...)
+
+	stmtRow := make([]any, 0, 1+len(baseRow)+4)
+	stmtRow = append(stmtRow, "postgres", "postgres", 1500, "select 1 from foo")
+	stmtRow = append(stmtRow, baseRow[3:]...)
+	stmtRow = append(stmtRow, 0.3, 0.4, 0.05, 0.06)
+
 	rows := sqlmock.NewRows(stmtColumns).AddRow(toDriverValues(stmtRow)...)
 	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery_PG17, fmt.Sprintf(pgStatStatementQuerySelect, 300)))).WillReturnRows(rows)
 
@@ -451,7 +504,11 @@ func TestPGStateStatementsCollector_PG17_WithStatement(t *testing.T) {
 		}
 	}()
 
-	expected := append(append(append(baseExpected, tempIOTimingExpected...), localIOTimingExpected...),
+	expected := make([]MetricResult, 0, len(baseExpected)+len(tempIOTimingExpected)+len(localIOTimingExpected)+1)
+	expected = append(expected, baseExpected...)
+	expected = append(expected, tempIOTimingExpected...)
+	expected = append(expected, localIOTimingExpected...)
+	expected = append(expected,
 		MetricResult{labels: labelMap{"queryid": "1500", "query": "select 1 from foo"}, metricType: dto.MetricType_COUNTER, value: 1},
 	)
 
