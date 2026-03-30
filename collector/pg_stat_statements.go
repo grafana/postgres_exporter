@@ -82,44 +82,20 @@ var (
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
-	// Shared block I/O timing. In PG 17+ this maps to shared_blk_read/write_time;
-	// in earlier versions it maps to the legacy blk_read/write_time columns which
-	// only tracked shared blocks.
+	// Aggregated block I/O timing. Sums whichever per-pool timing columns the
+	// PostgreSQL version exposes (if track_io_timing is enabled, otherwise zero):
+	//   PG < 16:  shared only
+	//   PG 16:    shared + temp
+	//   PG 17+:   shared + temp + local
 	statStatementsBlockReadSecondsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, statStatementsSubsystem, "block_read_seconds_total"),
-		"Total time the statement spent reading shared blocks, in seconds",
+		"Total time the statement spent reading blocks, in seconds (shared + temp + local, depending on PostgreSQL version)",
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
 	statStatementsBlockWriteSecondsTotal = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, statStatementsSubsystem, "block_write_seconds_total"),
-		"Total time the statement spent writing shared blocks, in seconds",
-		[]string{"user", "datname", "queryid"},
-		prometheus.Labels{},
-	)
-	// Temp block I/O timing — available from PG 16.
-	statStatementsTempBlockReadSecondsTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "temp_block_read_seconds_total"),
-		"Total time the statement spent reading temporary file blocks, in seconds (if track_io_timing is enabled, otherwise zero). Available from PostgreSQL 16.",
-		[]string{"user", "datname", "queryid"},
-		prometheus.Labels{},
-	)
-	statStatementsTempBlockWriteSecondsTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "temp_block_write_seconds_total"),
-		"Total time the statement spent writing temporary file blocks, in seconds (if track_io_timing is enabled, otherwise zero). Available from PostgreSQL 16.",
-		[]string{"user", "datname", "queryid"},
-		prometheus.Labels{},
-	)
-	// Local block I/O timing — available from PG 17.
-	statStatementsLocalBlockReadSecondsTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "local_block_read_seconds_total"),
-		"Total time the statement spent reading local blocks, in seconds (if track_io_timing is enabled, otherwise zero). Available from PostgreSQL 17.",
-		[]string{"user", "datname", "queryid"},
-		prometheus.Labels{},
-	)
-	statStatementsLocalBlockWriteSecondsTotal = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, statStatementsSubsystem, "local_block_write_seconds_total"),
-		"Total time the statement spent writing local blocks, in seconds (if track_io_timing is enabled, otherwise zero). Available from PostgreSQL 17.",
+		"Total time the statement spent writing blocks, in seconds (shared + temp + local, depending on PostgreSQL version)",
 		[]string{"user", "datname", "queryid"},
 		prometheus.Labels{},
 	)
@@ -460,9 +436,16 @@ func (c PGStatStatementsCollector) Update(ctx context.Context, instance *instanc
 			userLabel, datnameLabel, queryidLabel,
 		)
 
+		// Aggregate timing across all available pool types.
 		blockReadSecondsTotalMetric := 0.0
 		if blockReadSecondsTotal.Valid {
-			blockReadSecondsTotalMetric = blockReadSecondsTotal.Float64
+			blockReadSecondsTotalMetric += blockReadSecondsTotal.Float64
+		}
+		if hasTempIOTiming && tempBlockReadSecondsTotal.Valid {
+			blockReadSecondsTotalMetric += tempBlockReadSecondsTotal.Float64
+		}
+		if hasLocalIOTiming && localBlockReadSecondsTotal.Valid {
+			blockReadSecondsTotalMetric += localBlockReadSecondsTotal.Float64
 		}
 		ch <- prometheus.MustNewConstMetric(
 			statStatementsBlockReadSecondsTotal,
@@ -473,7 +456,13 @@ func (c PGStatStatementsCollector) Update(ctx context.Context, instance *instanc
 
 		blockWriteSecondsTotalMetric := 0.0
 		if blockWriteSecondsTotal.Valid {
-			blockWriteSecondsTotalMetric = blockWriteSecondsTotal.Float64
+			blockWriteSecondsTotalMetric += blockWriteSecondsTotal.Float64
+		}
+		if hasTempIOTiming && tempBlockWriteSecondsTotal.Valid {
+			blockWriteSecondsTotalMetric += tempBlockWriteSecondsTotal.Float64
+		}
+		if hasLocalIOTiming && localBlockWriteSecondsTotal.Valid {
+			blockWriteSecondsTotalMetric += localBlockWriteSecondsTotal.Float64
 		}
 		ch <- prometheus.MustNewConstMetric(
 			statStatementsBlockWriteSecondsTotal,
@@ -481,54 +470,6 @@ func (c PGStatStatementsCollector) Update(ctx context.Context, instance *instanc
 			blockWriteSecondsTotalMetric,
 			userLabel, datnameLabel, queryidLabel,
 		)
-
-		if hasTempIOTiming {
-			tempBlockReadSecondsTotalMetric := 0.0
-			if tempBlockReadSecondsTotal.Valid {
-				tempBlockReadSecondsTotalMetric = tempBlockReadSecondsTotal.Float64
-			}
-			ch <- prometheus.MustNewConstMetric(
-				statStatementsTempBlockReadSecondsTotal,
-				prometheus.CounterValue,
-				tempBlockReadSecondsTotalMetric,
-				userLabel, datnameLabel, queryidLabel,
-			)
-
-			tempBlockWriteSecondsTotalMetric := 0.0
-			if tempBlockWriteSecondsTotal.Valid {
-				tempBlockWriteSecondsTotalMetric = tempBlockWriteSecondsTotal.Float64
-			}
-			ch <- prometheus.MustNewConstMetric(
-				statStatementsTempBlockWriteSecondsTotal,
-				prometheus.CounterValue,
-				tempBlockWriteSecondsTotalMetric,
-				userLabel, datnameLabel, queryidLabel,
-			)
-		}
-
-		if hasLocalIOTiming {
-			localBlockReadSecondsTotalMetric := 0.0
-			if localBlockReadSecondsTotal.Valid {
-				localBlockReadSecondsTotalMetric = localBlockReadSecondsTotal.Float64
-			}
-			ch <- prometheus.MustNewConstMetric(
-				statStatementsLocalBlockReadSecondsTotal,
-				prometheus.CounterValue,
-				localBlockReadSecondsTotalMetric,
-				userLabel, datnameLabel, queryidLabel,
-			)
-
-			localBlockWriteSecondsTotalMetric := 0.0
-			if localBlockWriteSecondsTotal.Valid {
-				localBlockWriteSecondsTotalMetric = localBlockWriteSecondsTotal.Float64
-			}
-			ch <- prometheus.MustNewConstMetric(
-				statStatementsLocalBlockWriteSecondsTotal,
-				prometheus.CounterValue,
-				localBlockWriteSecondsTotalMetric,
-				userLabel, datnameLabel, queryidLabel,
-			)
-		}
 
 		if c.includeQueryStatement {
 			_, ok := presentQueryIds[queryidLabel]

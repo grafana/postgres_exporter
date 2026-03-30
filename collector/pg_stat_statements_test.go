@@ -55,7 +55,11 @@ var localIOTimingColumns = []string{"local_block_read_seconds_total", "local_blo
 //	local:  hit=1, read=2, dirtied=1, written=1
 //	temp:   read=3, written=2
 //
-// Aggregated expectations:
+// Timing (shared only, used for PG < 16):
+//
+//	block_read_seconds=0.1, block_write_seconds=0.2
+//
+// Aggregated count expectations:
 //
 //	blks_read_total    = 5+2+3 = 10
 //	blks_written_total = 4+1+2 = 7
@@ -63,28 +67,29 @@ var localIOTimingColumns = []string{"local_block_read_seconds_total", "local_blo
 //	blks_dirtied_total = 2+1   = 3   (no temp dirtied column)
 var baseRow = []any{"postgres", "postgres", 1500, 5, 0.4, 100, 3, 5, 2, 4, 1, 2, 1, 1, 3, 2, 0.1, 0.2}
 
-// baseExpected is the ordered list of MetricResults for a baseRow.
-var baseExpected = []MetricResult{
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 5},    // calls
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.4},   // seconds
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 100},   // rows
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 10},    // blks_read (5+2+3)
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 7},     // blks_written (4+1+2)
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 4},     // blks_hit (3+1)
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 3},     // blks_dirtied (2+1)
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.1},   // block_read_seconds
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.2},   // block_write_seconds
+// expectedMetrics returns the 9 base metrics for the given aggregated timing values.
+// Timing values depend on the PG version because we sum whichever pool timing
+// columns the version exposes:
+//
+//	PG < 16:  blockRead=0.1, blockWrite=0.2  (shared only)
+//	PG 16:    blockRead=0.4, blockWrite=0.6  (shared + temp: 0.1+0.3, 0.2+0.4)
+//	PG 17+:   blockRead=0.45, blockWrite=0.66 (shared + temp + local)
+func expectedMetrics(blockReadSeconds, blockWriteSeconds float64) []MetricResult {
+	return []MetricResult{
+		{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 5},               // calls
+		{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.4},              // seconds
+		{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 100},              // rows
+		{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 10},               // blks_read (5+2+3)
+		{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 7},                // blks_written (4+1+2)
+		{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 4},                // blks_hit (3+1)
+		{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 3},                // blks_dirtied (2+1)
+		{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: blockReadSeconds},  // block_read_seconds
+		{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: blockWriteSeconds}, // block_write_seconds
+	}
 }
 
-var tempIOTimingExpected = []MetricResult{
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.3}, // temp_block_read_seconds
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.4}, // temp_block_write_seconds
-}
-
-var localIOTimingExpected = []MetricResult{
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.05}, // local_block_read_seconds
-	{labels: labelMap{"user": "postgres", "datname": "postgres", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.06}, // local_block_write_seconds
-}
+// baseExpected covers PG < 16: timing is shared blocks only.
+var baseExpected = expectedMetrics(0.1, 0.2)
 
 func TestPGStateStatementsCollector(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -362,9 +367,11 @@ func TestPGStateStatementsCollector_PG16(t *testing.T) {
 		}
 	}()
 
-	expected := make([]MetricResult, 0, len(baseExpected)+len(tempIOTimingExpected))
-	expected = append(expected, baseExpected...)
-	expected = append(expected, tempIOTimingExpected...)
+	// Compute expected timing using runtime float64 arithmetic to match the
+	// collector's sequential += additions (avoids constant-expression precision differences).
+	var sharedRead, tempRead float64 = 0.1, 0.3
+	var sharedWrite, tempWrite float64 = 0.2, 0.4
+	expected := expectedMetrics(sharedRead+tempRead, sharedWrite+tempWrite)
 
 	convey.Convey("Metrics comparison", t, func() {
 		for _, expect := range expected {
@@ -408,10 +415,11 @@ func TestPGStateStatementsCollector_PG16_WithStatement(t *testing.T) {
 		}
 	}()
 
-	expected := make([]MetricResult, 0, len(baseExpected)+len(tempIOTimingExpected)+1)
-	expected = append(expected, baseExpected...)
-	expected = append(expected, tempIOTimingExpected...)
-	expected = append(expected,
+	// Compute expected timing using runtime float64 arithmetic to match the
+	// collector's sequential += additions (avoids constant-expression precision differences).
+	var sharedRead, tempRead float64 = 0.1, 0.3
+	var sharedWrite, tempWrite float64 = 0.2, 0.4
+	expected := append(expectedMetrics(sharedRead+tempRead, sharedWrite+tempWrite),
 		MetricResult{labels: labelMap{"queryid": "1500", "query": "select 1 from foo"}, metricType: dto.MetricType_COUNTER, value: 1},
 	)
 
@@ -456,10 +464,11 @@ func TestPGStateStatementsCollector_PG17(t *testing.T) {
 		}
 	}()
 
-	expected := make([]MetricResult, 0, len(baseExpected)+len(tempIOTimingExpected)+len(localIOTimingExpected))
-	expected = append(expected, baseExpected...)
-	expected = append(expected, tempIOTimingExpected...)
-	expected = append(expected, localIOTimingExpected...)
+	// Compute expected timing using runtime float64 arithmetic to match the
+	// collector's sequential += additions (avoids constant-expression precision differences).
+	var sharedRead, tempRead, localRead float64 = 0.1, 0.3, 0.05
+	var sharedWrite, tempWrite, localWrite float64 = 0.2, 0.4, 0.06
+	expected := expectedMetrics(sharedRead+tempRead+localRead, sharedWrite+tempWrite+localWrite)
 
 	convey.Convey("Metrics comparison", t, func() {
 		for _, expect := range expected {
@@ -504,11 +513,11 @@ func TestPGStateStatementsCollector_PG17_WithStatement(t *testing.T) {
 		}
 	}()
 
-	expected := make([]MetricResult, 0, len(baseExpected)+len(tempIOTimingExpected)+len(localIOTimingExpected)+1)
-	expected = append(expected, baseExpected...)
-	expected = append(expected, tempIOTimingExpected...)
-	expected = append(expected, localIOTimingExpected...)
-	expected = append(expected,
+	// Compute expected timing using runtime float64 arithmetic to match the
+	// collector's sequential += additions (avoids constant-expression precision differences).
+	var sharedRead, tempRead, localRead float64 = 0.1, 0.3, 0.05
+	var sharedWrite, tempWrite, localWrite float64 = 0.2, 0.4, 0.06
+	expected := append(expectedMetrics(sharedRead+tempRead+localRead, sharedWrite+tempWrite+localWrite),
 		MetricResult{labels: labelMap{"queryid": "1500", "query": "select 1 from foo"}, metricType: dto.MetricType_COUNTER, value: 1},
 	)
 
