@@ -24,7 +24,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blang/semver/v4"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -32,6 +31,10 @@ import (
 // TestPGStatStatementsIntegration connects to a live PostgreSQL instance,
 // installs pg_stat_statements, executes a workload, and verifies that the
 // collector emits all expected metrics without errors.
+//
+// Prerequisites:
+//   - PostgreSQL must have been started with
+//     shared_preload_libraries = 'pg_stat_statements'
 //
 // Run with:
 //
@@ -53,27 +56,20 @@ func TestPGStatStatementsIntegration(t *testing.T) {
 		t.Fatalf("ping db: %v", err)
 	}
 
-	// Determine PostgreSQL version.
-	var versionStr string
-	if err := db.QueryRow("SELECT version()").Scan(&versionStr); err != nil {
-		t.Fatalf("query version: %v", err)
-	}
-	t.Logf("PostgreSQL version string: %s", versionStr)
-
-	var pgMajor, pgMinor int
-	if _, err := fmt.Sscanf(strings.TrimPrefix(strings.Split(versionStr, " ")[1], ""), "%d.%d", &pgMajor, &pgMinor); err != nil {
-		// Single-digit minor (e.g. "17" not "17.0")
-		fmt.Sscanf(strings.Split(versionStr, " ")[1], "%d", &pgMajor)
-	}
-	semverStr := fmt.Sprintf("%d.%d.0", pgMajor, pgMinor)
-	pgVersion, err := semver.ParseTolerant(semverStr)
+	// Use the same queryVersion helper as the collector itself.
+	pgVersion, err := queryVersion(db)
 	if err != nil {
-		t.Fatalf("parse semver %q: %v", semverStr, err)
+		t.Fatalf("query version: %v", err)
 	}
 	t.Logf("Detected PG version: %s", pgVersion)
 
-	// Enable pg_stat_statements (requires the extension to be available).
+	// Enable pg_stat_statements (requires shared_preload_libraries to include it).
 	if _, err := db.Exec("CREATE EXTENSION IF NOT EXISTS pg_stat_statements"); err != nil {
+		if strings.Contains(err.Error(), "shared_preload_libraries") {
+			t.Skipf("pg_stat_statements is not loaded via shared_preload_libraries; "+
+				"add pg_stat_statements to shared_preload_libraries and restart PostgreSQL. "+
+				"Original error: %v", err)
+		}
 		t.Fatalf("create extension pg_stat_statements: %v", err)
 	}
 
@@ -82,39 +78,44 @@ func TestPGStatStatementsIntegration(t *testing.T) {
 		t.Logf("pg_stat_statements_reset() failed (may need superuser): %v", err)
 	}
 
-	// Generate some query activity.
+	// Generate some query activity so there is at least one row in pg_stat_statements.
 	for i := 0; i < 5; i++ {
-		if _, err := db.Exec("SELECT $1::int + $2::int", i, i+1); err != nil {
+		if _, err := db.Exec(fmt.Sprintf("SELECT %d + %d", i, i+1)); err != nil {
 			t.Fatalf("workload query %d: %v", i, err)
 		}
 	}
 
-	// Run the collector.
+	// Run the collector, draining metrics in a goroutine to avoid blocking
+	// Update() when the channel buffer fills up (up to 100 rows × 9 metrics).
 	inst := &instance{db: db, version: pgVersion}
 	c := PGStatStatementsCollector{}
 
-	ch := make(chan prometheus.Metric, 200)
+	ch := make(chan prometheus.Metric, 1000)
 	if err := c.Update(context.Background(), inst, ch); err != nil {
 		t.Fatalf("Update() error: %v", err)
 	}
 	close(ch)
 
-	// Tally which metric names were emitted.
+	// Tally which metric names were emitted using the fqName field from Desc.String().
 	seen := make(map[string]int)
 	for m := range ch {
 		desc := m.Desc().String()
-		// Extract metric name from the fqName field in the desc string.
-		// Desc format: Desc{fqName: "pg_stat_statements_calls_total", ...}
-		start := strings.Index(desc, `"`) + 1
-		end := strings.Index(desc[start:], `"`) + start
-		if start > 0 && end > start {
-			seen[desc[start:end]]++
+		const fqPrefix = `fqName: "`
+		start := strings.Index(desc, fqPrefix)
+		if start == -1 {
+			continue
 		}
+		start += len(fqPrefix)
+		end := strings.Index(desc[start:], `"`)
+		if end == -1 {
+			continue
+		}
+		seen[desc[start:start+end]]++
 	}
 
 	t.Logf("Emitted metric names: %v", seen)
 
-	// These metrics must always be present.
+	// These metrics must always be present regardless of PostgreSQL version.
 	required := []string{
 		"pg_stat_statements_calls_total",
 		"pg_stat_statements_seconds_total",
@@ -132,5 +133,5 @@ func TestPGStatStatementsIntegration(t *testing.T) {
 		}
 	}
 
-	t.Logf("PG %d: all required metrics emitted (%d total metric series)", pgMajor, len(seen))
+	t.Logf("PG %d: all required metrics emitted (%d total metric series)", pgVersion.Major, len(seen))
 }
