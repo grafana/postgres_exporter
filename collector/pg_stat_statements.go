@@ -81,6 +81,19 @@ type PGStatStatementsCollector struct {
 }
 
 func NewPGStatStatementsCollector(config collectorConfig) (Collector, error) {
+	// When config is provided, use it directly instead of global kingpin flags
+	if config.statStatementsConfig != nil {
+		return &PGStatStatementsCollector{
+			log:                   config.logger,
+			includeQueryStatement: config.statStatementsConfig.IncludeQuery,
+			statementLength:       config.statStatementsConfig.QueryLength,
+			statementLimit:        config.statStatementsConfig.Limit,
+			excludedDatabases:     config.statStatementsConfig.ExcludeDatabases,
+			excludedUsers:         config.statStatementsConfig.ExcludeUsers,
+		}, nil
+	}
+
+	// Fall back to kingpin CLI flags for standalone postgres_exporter binary usage.
 	var excludedDatabases []string
 	if *excludedDatabasesFlag != "" {
 		for db := range strings.SplitSeq(*excludedDatabasesFlag, ",") {
