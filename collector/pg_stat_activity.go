@@ -70,11 +70,11 @@ var (
 			FROM
 				(
 				  VALUES ('active'),
-						 ('idle'),
-						 ('idle in transaction'),
-						 ('idle in transaction (aborted)'),
-						 ('fastpath function call'),
-						 ('disabled')
+				  		 ('idle'),
+				  		 ('idle in transaction'),
+				  		 ('idle in transaction (aborted)'),
+				  		 ('fastpath function call'),
+				  		 ('disabled')
 				) AS tmp(state) CROSS JOIN pg_database
 			LEFT JOIN
 			(
