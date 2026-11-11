@@ -26,12 +26,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+type StatStatementsConfig struct {
+	IncludeQuery     bool
+	QueryLength      uint
+	Limit            uint
+	ExcludeDatabases []string
+	ExcludeUsers     []string
+}
+
 var (
-	factories              = make(map[string]func(collectorConfig) (Collector, error))
-	initiatedCollectorsMtx = sync.Mutex{}
-	initiatedCollectors    = make(map[string]Collector)
-	collectorState         = make(map[string]*bool)
-	forcedCollectors       = map[string]bool{} // collectors which have been explicitly enabled or disabled
+	factories        = make(map[string]func(collectorConfig) (Collector, error))
+	collectorState   = make(map[string]*bool)
+	forcedCollectors = map[string]bool{} // collectors which have been explicitly enabled or disabled
 )
 
 const (
@@ -65,23 +71,14 @@ type Collector interface {
 type collectorConfig struct {
 	logger           *slog.Logger
 	excludeDatabases []string
+
+	statStatementsConfig *StatStatementsConfig
 }
 
 func registerCollector(name string, isDefaultEnabled bool, createFunc func(collectorConfig) (Collector, error)) {
-	var helpDefaultState string
-	if isDefaultEnabled {
-		helpDefaultState = "enabled"
-	} else {
-		helpDefaultState = "disabled"
-	}
-
-	// Create flag for this collector
-	flagName := collectorFlagPrefix + name
-	flagHelp := fmt.Sprintf("Enable the %s collector (default: %s).", name, helpDefaultState)
-	defaultValue := fmt.Sprintf("%v", isDefaultEnabled)
-
-	flag := kingpin.Flag(flagName, flagHelp).Default(defaultValue).Action(collectorFlagAction(name)).Bool()
-	collectorState[name] = flag
+	collectorFlagAction(name)
+	local := isDefaultEnabled
+	collectorState[name] = &local
 
 	// Register the create function for this collector
 	factories[name] = createFunc
@@ -94,12 +91,14 @@ type PostgresCollector struct {
 
 	instance          *instance
 	CollectionTimeout time.Duration
+
+	statStatementsConfig *StatStatementsConfig
 }
 
 type Option func(*PostgresCollector) error
 
 // NewPostgresCollector creates a new PostgresCollector.
-func NewPostgresCollector(logger *slog.Logger, excludeDatabases []string, dsn string, filters []string, options ...Option) (*PostgresCollector, error) {
+func NewPostgresCollector(logger *slog.Logger, excludeDatabases []string, dsn string, enabledCollectors []string, options ...Option) (*PostgresCollector, error) {
 	p := &PostgresCollector{
 		logger: logger,
 	}
@@ -112,36 +111,33 @@ func NewPostgresCollector(logger *slog.Logger, excludeDatabases []string, dsn st
 	}
 
 	f := make(map[string]bool)
-	for _, filter := range filters {
-		enabled, exist := collectorState[filter]
+	for _, name := range enabledCollectors {
+		_, exist := collectorState[name]
 		if !exist {
-			return nil, fmt.Errorf("missing collector: %s", filter)
+			return nil, fmt.Errorf("requested to enable an unknown collector: %s", name)
 		}
-		if !*enabled {
-			return nil, fmt.Errorf("disabled collector: %s", filter)
-		}
-		f[filter] = true
+		f[name] = true
 	}
 	collectors := make(map[string]Collector)
-	initiatedCollectorsMtx.Lock()
-	defer initiatedCollectorsMtx.Unlock()
 	for key, enabled := range collectorState {
-		if !*enabled || (len(f) > 0 && !f[key]) {
+		// When enabledCollectors are specified, only start those collectors (regardless of default enabled state).
+		// When no enabledCollectors are specified, start all collectors that are enabled by default.
+		if len(f) > 0 {
+			if !f[key] {
+				continue
+			}
+		} else if !*enabled {
 			continue
 		}
-		if collector, ok := initiatedCollectors[key]; ok {
-			collectors[key] = collector
-		} else {
-			collector, err := factories[key](collectorConfig{
-				logger:           logger.With("collector", key),
-				excludeDatabases: excludeDatabases,
-			})
-			if err != nil {
-				return nil, err
-			}
-			collectors[key] = collector
-			initiatedCollectors[key] = collector
+		collector, err := factories[key](collectorConfig{
+			logger:               logger.With("collector", key),
+			excludeDatabases:     excludeDatabases,
+			statStatementsConfig: p.statStatementsConfig,
+		})
+		if err != nil {
+			return nil, err
 		}
+		collectors[key] = collector
 	}
 
 	p.Collectors = collectors
@@ -169,6 +165,13 @@ func WithCollectionTimeout(s string) Option {
 			return errors.New("timeout must be greater than 1ms")
 		}
 		e.CollectionTimeout = duration
+		return nil
+	}
+}
+
+func WithStatStatementsConfig(cfg StatStatementsConfig) Option {
+	return func(e *PostgresCollector) error {
+		e.statStatementsConfig = &cfg
 		return nil
 	}
 }

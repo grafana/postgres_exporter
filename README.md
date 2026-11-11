@@ -10,6 +10,33 @@ Prometheus exporter for PostgreSQL server metrics.
 
 CI Tested PostgreSQL versions: `13`, `14`, `15`, `16`, `17`, `18`.
 
+## Grafana fork compatibility
+
+This branch incorporates upstream v0.20.1 and retains the fork's per-instance
+configuration and explicit collector allowlists.
+
+`collector.NewPostgresCollector` enables the migrated `settings`, `stat_activity`,
+`stat_archiver`, and `stat_replication` collectors by default. The replication-slot
+collector now includes both active/lag metrics and the existing slot metrics.
+`exporter.NewExporter` no longer collects these groups.
+
+An explicit allowlist still replaces the defaults. The replication-slot collector
+uses upstream's canonical `replication_slots` name, without a singular-name alias.
+
+The upstream metric renames are retained, without aliases for the previous names:
+
+| Previous metric | Metric in v0.20.1 |
+| --- | --- |
+| `pg_replication_slot_slot_current_wal_lsn` | `pg_replication_slots_slot_current_wal_lsn` |
+| `pg_replication_slot_slot_confirmed_flush_lsn` | `pg_replication_slots_slot_confirmed_flush_lsn` |
+| `pg_replication_slot_slot_is_active` | `pg_replication_slots_slot_is_active` |
+| `pg_replication_slot_safe_wal_size_bytes` | `pg_replication_slots_safe_wal_size_bytes` |
+| `pg_replication_slot_wal_status` | `pg_replication_slots_wal_status` |
+
+Update dashboards, alerts, and recording rules that reference these names.
+The remaining sections describe upstream usage; collector selection in this fork
+follows the fork behavior above.
+
 ## Quick Start
 This package is available for Docker:
 ```
