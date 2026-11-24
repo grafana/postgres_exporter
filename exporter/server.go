@@ -15,6 +15,7 @@ package exporter
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -145,11 +146,16 @@ func (s *Server) Scrape(ch chan<- prometheus.Metric, disableSettingsMetrics bool
 	return err
 }
 
+// errServersClosed is returned by GetServer once the collection has been
+// closed.
+var errServersClosed = errors.New("servers are closed")
+
 // Servers contains a collection of servers to Postgres.
 type Servers struct {
 	m       sync.Mutex
 	servers map[string]*Server
 	opts    []ServerOpt
+	closed  bool
 }
 
 // NewServers creates a collection of servers to Postgres.
@@ -160,10 +166,16 @@ func NewServers(opts ...ServerOpt) *Servers {
 	}
 }
 
-// GetServer returns established connection from a collection.
+// GetServer returns established connection from a collection. It returns
+// errServersClosed once the collection has been closed, so that a scrape that
+// is still running while the collection is closed can't open connections that
+// nothing will close.
 func (s *Servers) GetServer(dsn string) (*Server, error) {
 	s.m.Lock()
 	defer s.m.Unlock()
+	if s.closed {
+		return nil, errServersClosed
+	}
 	var err error
 	var ok bool
 	errCount := 0 // start at zero because we increment before doing work
@@ -193,10 +205,12 @@ func (s *Servers) GetServer(dsn string) (*Server, error) {
 	return server, nil
 }
 
-// Close disconnects from all known servers.
+// Close disconnects from all known servers and stops the collection from
+// opening new ones.
 func (s *Servers) Close() {
 	s.m.Lock()
 	defer s.m.Unlock()
+	s.closed = true
 	for _, server := range s.servers {
 		if err := server.Close(); err != nil {
 			server.logger.Error("Failed to close connection", "server", server, "err", err)
