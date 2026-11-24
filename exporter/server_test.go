@@ -48,7 +48,7 @@ func (s *ServersSuite) TestGetServerAfterCloseDoesNotOpenConnections(c *C) {
 
 	server, err := servers.GetServer(serversSuiteDSN)
 
-	c.Check(err, Equals, ErrServersClosed)
+	c.Check(err, Equals, errServersClosed)
 	c.Check(server, IsNil)
 	c.Check(servers.servers, HasLen, 0)
 }
@@ -66,6 +66,6 @@ func (s *ServersSuite) TestGetKnownServerAfterClose(c *C) {
 
 	got, err := servers.GetServer(serversSuiteDSN)
 
-	c.Check(err, Equals, ErrServersClosed)
+	c.Check(err, Equals, errServersClosed)
 	c.Check(got, IsNil)
 }

@@ -146,9 +146,9 @@ func (s *Server) Scrape(ch chan<- prometheus.Metric, disableSettingsMetrics bool
 	return err
 }
 
-// ErrServersClosed is returned by GetServer once the collection has been
+// errServersClosed is returned by GetServer once the collection has been
 // closed.
-var ErrServersClosed = errors.New("servers are closed")
+var errServersClosed = errors.New("servers are closed")
 
 // Servers contains a collection of servers to Postgres.
 type Servers struct {
@@ -167,14 +167,14 @@ func NewServers(opts ...ServerOpt) *Servers {
 }
 
 // GetServer returns established connection from a collection. It returns
-// ErrServersClosed once the collection has been closed, so that a scrape that
+// errServersClosed once the collection has been closed, so that a scrape that
 // is still running while the collection is closed can't open connections that
 // nothing will close.
 func (s *Servers) GetServer(dsn string) (*Server, error) {
 	s.m.Lock()
 	defer s.m.Unlock()
 	if s.closed {
-		return nil, ErrServersClosed
+		return nil, errServersClosed
 	}
 	var err error
 	var ok bool
