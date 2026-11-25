@@ -13,6 +13,7 @@
 package collector
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -131,5 +132,101 @@ func TestWithConnectionTimeout(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("there were unfulfilled exceptions: %s", err)
+	}
+}
+
+func TestNewPostgresCollectorPassesFilterConfigs(t *testing.T) {
+	c, err := NewPostgresCollector(
+		promslog.NewNopLogger(),
+		nil,
+		"postgresql://local",
+		[]string{statStatementsSubsystem, statDatabaseSubsystem, locksSubsystem},
+		WithStatStatementsConfig(StatStatementsConfig{
+			IncludeDatabases: []string{"app"},
+			ExcludeDatabases: []string{"postgres"},
+			IncludeUsers:     []string{"app_user"},
+			ExcludeUsers:     []string{"monitor"},
+		}),
+		WithStatDatabaseConfig(StatDatabaseConfig{
+			IncludeDatabases: []string{"app"},
+			ExcludeDatabases: []string{"rdsadmin"},
+		}),
+		WithLocksConfig(LocksConfig{
+			IncludeDatabases: []string{"orders"},
+			ExcludeDatabases: []string{"cloudsqladmin"},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewPostgresCollector() error = %v", err)
+	}
+
+	statStatements, ok := c.Collectors[statStatementsSubsystem].(*PGStatStatementsCollector)
+	if !ok {
+		t.Fatalf("stat_statements collector type = %T, want *PGStatStatementsCollector", c.Collectors[statStatementsSubsystem])
+	}
+	if !reflect.DeepEqual(statStatements.includedDatabases, []string{"app"}) ||
+		!reflect.DeepEqual(statStatements.excludedDatabases, []string{"postgres"}) ||
+		!reflect.DeepEqual(statStatements.includedUsers, []string{"app_user"}) ||
+		!reflect.DeepEqual(statStatements.excludedUsers, []string{"monitor"}) {
+		t.Fatalf("stat_statements filters = %+v, want the configured include/exclude lists", statStatements)
+	}
+
+	statDatabase, ok := c.Collectors[statDatabaseSubsystem].(*PGStatDatabaseCollector)
+	if !ok {
+		t.Fatalf("stat_database collector type = %T, want *PGStatDatabaseCollector", c.Collectors[statDatabaseSubsystem])
+	}
+	if !reflect.DeepEqual(statDatabase.includedDatabases, []string{"app"}) ||
+		!reflect.DeepEqual(statDatabase.excludedDatabases, []string{"rdsadmin"}) {
+		t.Fatalf("stat_database filters = %+v, want the configured include/exclude lists", statDatabase)
+	}
+
+	locks, ok := c.Collectors[locksSubsystem].(*PGLocksCollector)
+	if !ok {
+		t.Fatalf("locks collector type = %T, want *PGLocksCollector", c.Collectors[locksSubsystem])
+	}
+	if !reflect.DeepEqual(locks.includedDatabases, []string{"orders"}) ||
+		!reflect.DeepEqual(locks.excludedDatabases, []string{"cloudsqladmin"}) {
+		t.Fatalf("locks filters = %+v, want the configured include/exclude lists", locks)
+	}
+}
+
+func TestNewPostgresCollectorRejectsOverlappingFilters(t *testing.T) {
+	tests := []struct {
+		name    string
+		option  Option
+		wantErr string
+	}{
+		{
+			name:    "stat_statements databases",
+			option:  WithStatStatementsConfig(StatStatementsConfig{IncludeDatabases: []string{"app"}, ExcludeDatabases: []string{"app"}}),
+			wantErr: `stat_statements: include_databases and exclude_databases cannot both contain "app"`,
+		},
+		{
+			name:    "stat_statements users",
+			option:  WithStatStatementsConfig(StatStatementsConfig{IncludeUsers: []string{"app_user"}, ExcludeUsers: []string{"monitor", "app_user"}}),
+			wantErr: `stat_statements: include_users and exclude_users cannot both contain "app_user"`,
+		},
+		{
+			name:    "stat_database databases",
+			option:  WithStatDatabaseConfig(StatDatabaseConfig{IncludeDatabases: []string{"app"}, ExcludeDatabases: []string{"app"}}),
+			wantErr: `stat_database: include_databases and exclude_databases cannot both contain "app"`,
+		},
+		{
+			name:    "locks databases",
+			option:  WithLocksConfig(LocksConfig{IncludeDatabases: []string{"app"}, ExcludeDatabases: []string{"app"}}),
+			wantErr: `locks: include_databases and exclude_databases cannot both contain "app"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewPostgresCollector(promslog.NewNopLogger(), nil, "postgresql://local", nil, tc.option)
+			if err == nil {
+				t.Fatalf("NewPostgresCollector() error = nil, want %q", tc.wantErr)
+			}
+			if err.Error() != tc.wantErr {
+				t.Fatalf("NewPostgresCollector() error = %q, want %q", err.Error(), tc.wantErr)
+			}
+		})
 	}
 }

@@ -16,24 +16,59 @@ package collector
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 
+	"github.com/alecthomas/kingpin/v2"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 const locksSubsystem = "locks"
 
+var (
+	locksIncludedDatabasesFlag *string = nil
+	locksExcludedDatabasesFlag *string = nil
+)
+
 func init() {
 	registerCollector(locksSubsystem, defaultEnabled, NewPGLocksCollector)
+
+	locksIncludedDatabasesFlag = kingpin.Flag(
+		fmt.Sprint(collectorFlagPrefix, locksSubsystem, ".include_databases"),
+		"Comma-separated list of database names to include. (default: all)").
+		Default("").
+		String()
+	locksExcludedDatabasesFlag = kingpin.Flag(
+		fmt.Sprint(collectorFlagPrefix, locksSubsystem, ".exclude_databases"),
+		"Comma-separated list of database names to exclude. (default: none)").
+		Default("").
+		String()
 }
 
 type PGLocksCollector struct {
-	log *slog.Logger
+	log               *slog.Logger
+	includedDatabases []string
+	excludedDatabases []string
 }
 
 func NewPGLocksCollector(config collectorConfig) (Collector, error) {
+	// When config is provided, use it directly instead of global kingpin flags
+	cfg := config.locksConfig
+	if cfg == nil {
+		// Fall back to kingpin CLI flags for standalone postgres_exporter binary usage.
+		cfg = &LocksConfig{
+			IncludeDatabases: splitList(*locksIncludedDatabasesFlag),
+			ExcludeDatabases: splitList(*locksExcludedDatabasesFlag),
+		}
+		if err := cfg.validate(); err != nil {
+			return nil, err
+		}
+	}
+
 	return &PGLocksCollector{
-		log: config.logger,
+		log:               config.logger,
+		includedDatabases: cfg.IncludeDatabases,
+		excludedDatabases: cfg.ExcludeDatabases,
 	}, nil
 }
 
@@ -48,7 +83,7 @@ var (
 		[]string{"datname", "mode"}, nil,
 	)
 
-	pgLocksQuery = `
+	pgLocksQueryTemplate = `
 		SELECT 
 		  pg_database.datname as datname,
 		  tmp.mode as mode,
@@ -81,19 +116,30 @@ var (
 		      lower(mode)
 		  ) AS tmp2 ON tmp.mode = tmp2.mode 
 		  and pg_database.oid = tmp2.database 
-		ORDER BY 
+		%sORDER BY 
 		  1
 	`
+
+	pgLocksQuery = fmt.Sprintf(pgLocksQueryTemplate, "")
 )
+
+func locksQueryWithFilters(includedDatabases, excludedDatabases []string) (string, []any) {
+	var filter sqlFilterBuilder
+	filter.addIncludeExclude("pg_database.datname", includedDatabases, excludedDatabases)
+	whereClause, args := filter.whereClause()
+	if whereClause == "" {
+		return pgLocksQuery, nil
+	}
+	return fmt.Sprintf(pgLocksQueryTemplate, whereClause+"\n\t\t"), args
+}
 
 // Update implements Collector and exposes database locks.
 // It is called by the Prometheus registry when collecting metrics.
 func (c PGLocksCollector) Update(ctx context.Context, instance *instance, ch chan<- prometheus.Metric) error {
 	db := instance.getDB()
+	query, args := locksQueryWithFilters(c.includedDatabases, c.excludedDatabases)
 	// Query the list of databases
-	rows, err := db.QueryContext(ctx,
-		pgLocksQuery,
-	)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}

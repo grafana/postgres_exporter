@@ -120,6 +120,12 @@ This will build the docker image as `prometheuscommunity/postgres_exporter:${bra
 * `[no-]collector.locks`
   Enable the `locks` collector (default: enabled).
 
+* `--collector.locks.include_databases`
+  Comma-separated list of database names to include in `pg_locks` metrics. Default is all.
+
+* `--collector.locks.exclude_databases`
+  Comma-separated list of database names to exclude from `pg_locks` metrics. Default is none. Cannot overlap `include_databases`.
+
 * `[no-]collector.long_running_transactions`
   Enable the `long_running_transactions` collector (default: disabled).
 
@@ -147,6 +153,12 @@ This will build the docker image as `prometheuscommunity/postgres_exporter:${bra
 * `[no-]collector.stat_database`
   Enable the `stat_database` collector (default: enabled).
 
+* `--collector.stat_database.include_databases`
+  Comma-separated list of database names to include in `pg_stat_database` metrics. Default is all.
+
+* `--collector.stat_database.exclude_databases`
+  Comma-separated list of database names to exclude from `pg_stat_database` metrics. Default is none. Cannot overlap `include_databases`.
+
 * `[no-]collector.stat_progress_vacuum`
   Enable the `stat_progress_vacuum` collector (default: enabled).
 
@@ -162,11 +174,17 @@ This will build the docker image as `prometheuscommunity/postgres_exporter:${bra
 * `--collector.stat_statements.limit`
   Maximum number of statements to return. Default is 100.
 
+* `--collector.stat_statements.include_databases`
+  Comma-separated list of database names to include in `pg_stat_statements` metrics. Default is all.
+
 * `--collector.stat_statements.exclude_databases`
-  Comma-separated list of database names to exclude from `pg_stat_statements` metrics. Default is none.
+  Comma-separated list of database names to exclude from `pg_stat_statements` metrics. Default is none. Cannot overlap `include_databases`.
+
+* `--collector.stat_statements.include_users`
+  Comma-separated list of user names to include in `pg_stat_statements` metrics. Default is all.
 
 * `--collector.stat_statements.exclude_users`
-  Comma-separated list of user names to exclude from `pg_stat_statements` metrics. Default is none.
+  Comma-separated list of user names to exclude from `pg_stat_statements` metrics. Default is none. Cannot overlap `include_users`.
 
 * `[no-]collector.stat_user_tables`
   Enable the `stat_user_tables` collector (default: enabled).

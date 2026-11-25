@@ -14,11 +14,15 @@ package collector
 
 import (
 	"context"
+	"database/sql/driver"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/blang/semver/v4"
+	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/promslog"
@@ -526,5 +530,129 @@ func TestPGStatDatabaseCollectorTestNilStatReset(t *testing.T) {
 	})
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("there were unfulfilled exceptions: %s", err)
+	}
+}
+
+func TestPGStatDatabaseCollectorWithFilters(t *testing.T) {
+	tests := []struct {
+		name              string
+		includedDatabases []string
+		excludedDatabases []string
+		wantWhere         string
+		wantArgs          []driver.Value
+	}{
+		{
+			name:              "include databases",
+			includedDatabases: []string{"app", "orders"},
+			wantWhere:         "WHERE datname = ANY($1)",
+			wantArgs:          []driver.Value{pq.Array([]string{"app", "orders"})},
+		},
+		{
+			name:              "exclude databases",
+			excludedDatabases: []string{"rdsadmin", "cloudsqladmin"},
+			wantWhere:         "WHERE datname != ALL($1)",
+			wantArgs:          []driver.Value{pq.Array([]string{"rdsadmin", "cloudsqladmin"})},
+		},
+		{
+			name:              "include and exclude databases",
+			includedDatabases: []string{"app"},
+			excludedDatabases: []string{"rdsadmin"},
+			wantWhere:         "WHERE datname = ANY($1) AND datname != ALL($2)",
+			wantArgs:          []driver.Value{pq.Array([]string{"app"}), pq.Array([]string{"rdsadmin"})},
+		},
+	}
+
+	columns := []string{
+		"datid",
+		"datname",
+		"numbackends",
+		"xact_commit",
+		"xact_rollback",
+		"blks_read",
+		"blks_hit",
+		"tup_returned",
+		"tup_fetched",
+		"tup_inserted",
+		"tup_updated",
+		"tup_deleted",
+		"conflicts",
+		"temp_files",
+		"temp_bytes",
+		"deadlocks",
+		"blk_read_time",
+		"blk_write_time",
+		"stats_reset",
+		"active_time",
+	}
+
+	srT, err := time.Parse("2006-01-02 15:04:05.00000-07", "2023-05-25 17:10:42.81132-07")
+	if err != nil {
+		t.Fatalf("Error parsing time: %s", err)
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("Error opening a stub db connection: %s", err)
+			}
+			defer db.Close()
+
+			inst := &instance{db: db, version: semver.MustParse("14.0.0")}
+
+			rows := sqlmock.NewRows(columns).
+				AddRow(
+					"16384",
+					"app",
+					10,
+					100,
+					2,
+					50,
+					500,
+					1000,
+					200,
+					30,
+					40,
+					5,
+					0,
+					1,
+					4096,
+					0,
+					1.5,
+					0.5,
+					srT,
+					250,
+				)
+
+			expectedQuery := fmt.Sprintf("SELECT %s FROM pg_stat_database %s;", strings.Join(columns, ","), tc.wantWhere)
+			mock.ExpectQuery(sanitizeQuery(expectedQuery)).WithArgs(tc.wantArgs...).WillReturnRows(rows)
+
+			ch := make(chan prometheus.Metric)
+			go func() {
+				defer close(ch)
+				c := PGStatDatabaseCollector{
+					log:               promslog.NewNopLogger().With("collector", "pg_stat_database"),
+					includedDatabases: tc.includedDatabases,
+					excludedDatabases: tc.excludedDatabases,
+				}
+				if err := c.Update(context.Background(), inst, ch); err != nil {
+					t.Errorf("Error calling PGStatDatabaseCollector.Update: %s", err)
+				}
+			}()
+
+			var got []MetricResult
+			for m := range ch {
+				got = append(got, readMetric(m))
+			}
+			if len(got) != 18 {
+				t.Fatalf("got %d metrics, want 18", len(got))
+			}
+			if got[0].labels["datname"] != "app" || got[0].value != 10 {
+				t.Fatalf("first metric = %+v, want datname=app value=10", got[0])
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("there were unfulfilled expectations: %s", err)
+			}
+		})
 	}
 }
