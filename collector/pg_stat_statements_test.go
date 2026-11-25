@@ -14,11 +14,13 @@ package collector
 
 import (
 	"context"
+	"database/sql/driver"
 	"fmt"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/blang/semver/v4"
+	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/smartystreets/goconvey/convey"
@@ -563,9 +565,12 @@ func TestPGStatStatementsCollectorWithExcludedDatabases(t *testing.T) {
 	rows := sqlmock.NewRows(columns).
 		AddRow("postgres", "postgres", 1500, 5, 0.4, 100, 0.1, 0.2)
 
-	// Expected query should include database exclusion filters
-	expectedFilter := " AND pg_database.datname NOT IN ('rdsadmin', 'cloudsqladmin')"
-	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery, "", expectedFilter, "", defaultStatementLimit))).WillReturnRows(rows)
+	// Expected query should include database exclusion filters in both the threshold subquery and outer query
+	expectedThresholdFilter := "JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid WHERE pg_database.datname != ALL($1)"
+	expectedFilter := "AND pg_database.datname != ALL($1)"
+	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery, "", expectedThresholdFilter, expectedFilter, defaultStatementLimit))).
+		WithArgs(pq.Array(excludedDatabases)).
+		WillReturnRows(rows)
 
 	ch := make(chan prometheus.Metric)
 	go func() {
@@ -612,8 +617,11 @@ func TestPGStatStatementsCollectorWithExcludedDatabasesSQLEscaping(t *testing.T)
 	rows := sqlmock.NewRows(columns).
 		AddRow("postgres", "postgres", 1500, 5, 0.4, 100, 0.1, 0.2)
 
-	expectedFilter := " AND pg_database.datname NOT IN ('test''db')"
-	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery_PG13, "", false, expectedFilter, "", defaultStatementLimit))).WillReturnRows(rows)
+	expectedThresholdFilter := "JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid WHERE pg_database.datname != ALL($1)"
+	expectedFilter := "AND pg_database.datname != ALL($1)"
+	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery_PG13, "", false, expectedThresholdFilter, expectedFilter, defaultStatementLimit))).
+		WithArgs(pq.Array(excludedDatabases)).
+		WillReturnRows(rows)
 
 	ch := make(chan prometheus.Metric)
 	go func() {
@@ -659,8 +667,11 @@ func TestPGStatStatementsCollectorWithExcludedUsers(t *testing.T) {
 	rows := sqlmock.NewRows(columns).
 		AddRow("postgres", "postgres", 1500, 5, 0.4, 100, 0.1, 0.2)
 
-	expectedFilter := " AND pg_get_userbyid(userid) NOT IN ('monitoring', 'readonly')"
-	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery, "", "", expectedFilter, defaultStatementLimit))).WillReturnRows(rows)
+	expectedThresholdFilter := "JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid WHERE pg_get_userbyid(userid) != ALL($1)"
+	expectedFilter := "AND pg_get_userbyid(userid) != ALL($1)"
+	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery, "", expectedThresholdFilter, expectedFilter, defaultStatementLimit))).
+		WithArgs(pq.Array(excludedUsers)).
+		WillReturnRows(rows)
 
 	ch := make(chan prometheus.Metric)
 	go func() {
@@ -707,8 +718,11 @@ func TestPGStatStatementsCollectorWithExcludedUsersSQLEscaping(t *testing.T) {
 	rows := sqlmock.NewRows(columns).
 		AddRow("postgres", "postgres", 1500, 5, 0.4, 100, 0.1, 0.2)
 
-	expectedFilter := " AND pg_get_userbyid(userid) NOT IN ('test''user')"
-	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery_PG13, "", false, "", expectedFilter, defaultStatementLimit))).WillReturnRows(rows)
+	expectedThresholdFilter := "JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid WHERE pg_get_userbyid(userid) != ALL($1)"
+	expectedFilter := "AND pg_get_userbyid(userid) != ALL($1)"
+	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery_PG13, "", false, expectedThresholdFilter, expectedFilter, defaultStatementLimit))).
+		WithArgs(pq.Array(excludedUsers)).
+		WillReturnRows(rows)
 
 	ch := make(chan prometheus.Metric)
 	go func() {
@@ -756,9 +770,11 @@ func TestPGStatStatementsCollectorWithExcludedDatabasesAndUsers(t *testing.T) {
 	rows := sqlmock.NewRows(columns).
 		AddRow("postgres", "postgres", 1500, 5, 0.4, 100, 0.1, 0.2)
 
-	expectedDbFilter := " AND pg_database.datname NOT IN ('rdsadmin', 'cloudsqladmin')"
-	expectedUserFilter := " AND pg_get_userbyid(userid) NOT IN ('monitoring', 'readonly')"
-	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery_PG17, "", false, expectedDbFilter, expectedUserFilter, defaultStatementLimit))).WillReturnRows(rows)
+	expectedThresholdFilter := "JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid WHERE pg_database.datname != ALL($1) AND pg_get_userbyid(userid) != ALL($2)"
+	expectedFilter := "AND pg_database.datname != ALL($1) AND pg_get_userbyid(userid) != ALL($2)"
+	mock.ExpectQuery(sanitizeQuery(fmt.Sprintf(pgStatStatementsQuery_PG17, "", false, expectedThresholdFilter, expectedFilter, defaultStatementLimit))).
+		WithArgs(pq.Array(excludedDatabases), pq.Array(excludedUsers)).
+		WillReturnRows(rows)
 
 	ch := make(chan prometheus.Metric)
 	go func() {
@@ -786,5 +802,114 @@ func TestPGStatStatementsCollectorWithExcludedDatabasesAndUsers(t *testing.T) {
 	})
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("there were unfulfilled exceptions: %s", err)
+	}
+}
+
+func TestPGStatStatementsCollectorWithIncludeFilters(t *testing.T) {
+	tests := []struct {
+		name                string
+		version             string
+		includedDatabases   []string
+		excludedDatabases   []string
+		includedUsers       []string
+		excludedUsers       []string
+		wantThresholdFilter string
+		wantFilter          string
+		wantArgs            []driver.Value
+	}{
+		{
+			name:                "include databases only",
+			version:             "12.0.0",
+			includedDatabases:   []string{"app", "orders"},
+			wantThresholdFilter: "JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid WHERE pg_database.datname = ANY($1)",
+			wantFilter:          "AND pg_database.datname = ANY($1)",
+			wantArgs:            []driver.Value{pq.Array([]string{"app", "orders"})},
+		},
+		{
+			name:                "include users only",
+			version:             "13.0.0",
+			includedUsers:       []string{"app_user", "test'user"},
+			wantThresholdFilter: "JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid WHERE pg_get_userbyid(userid) = ANY($1)",
+			wantFilter:          "AND pg_get_userbyid(userid) = ANY($1)",
+			wantArgs:            []driver.Value{pq.Array([]string{"app_user", "test'user"})},
+		},
+		{
+			name:                "include and exclude databases and users",
+			version:             "17.0.0",
+			includedDatabases:   []string{"app"},
+			excludedDatabases:   []string{"rdsadmin"},
+			includedUsers:       []string{"app_user"},
+			excludedUsers:       []string{"monitoring"},
+			wantThresholdFilter: "JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid WHERE pg_database.datname = ANY($1) AND pg_database.datname != ALL($2) AND pg_get_userbyid(userid) = ANY($3) AND pg_get_userbyid(userid) != ALL($4)",
+			wantFilter:          "AND pg_database.datname = ANY($1) AND pg_database.datname != ALL($2) AND pg_get_userbyid(userid) = ANY($3) AND pg_get_userbyid(userid) != ALL($4)",
+			wantArgs: []driver.Value{
+				pq.Array([]string{"app"}),
+				pq.Array([]string{"rdsadmin"}),
+				pq.Array([]string{"app_user"}),
+				pq.Array([]string{"monitoring"}),
+			},
+		},
+	}
+
+	columns := []string{"user", "datname", "queryid", "calls_total", "seconds_total", "rows_total", "block_read_seconds_total", "block_write_seconds_total"}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("Error opening a stub db connection: %s", err)
+			}
+			defer db.Close()
+
+			ver := semver.MustParse(tc.version)
+			inst := &instance{db: db, version: ver}
+
+			rows := sqlmock.NewRows(columns).
+				AddRow("app_user", "app", 1500, 5, 0.4, 100, 0.1, 0.2)
+
+			var expectedQuery string
+			switch {
+			case ver.GE(semver.MustParse("17.0.0")):
+				expectedQuery = fmt.Sprintf(pgStatStatementsQuery_PG17, "", false, tc.wantThresholdFilter, tc.wantFilter, defaultStatementLimit)
+			case ver.GE(semver.MustParse("13.0.0")):
+				expectedQuery = fmt.Sprintf(pgStatStatementsQuery_PG13, "", false, tc.wantThresholdFilter, tc.wantFilter, defaultStatementLimit)
+			default:
+				expectedQuery = fmt.Sprintf(pgStatStatementsQuery, "", tc.wantThresholdFilter, tc.wantFilter, defaultStatementLimit)
+			}
+
+			mock.ExpectQuery(sanitizeQuery(expectedQuery)).WithArgs(tc.wantArgs...).WillReturnRows(rows)
+
+			ch := make(chan prometheus.Metric)
+			go func() {
+				defer close(ch)
+				c := PGStatStatementsCollector{
+					includedDatabases: tc.includedDatabases,
+					excludedDatabases: tc.excludedDatabases,
+					includedUsers:     tc.includedUsers,
+					excludedUsers:     tc.excludedUsers,
+				}
+				if err := c.Update(context.Background(), inst, ch); err != nil {
+					t.Errorf("Error calling PGStatStatementsCollector.Update: %s", err)
+				}
+			}()
+
+			expected := []MetricResult{
+				{labels: labelMap{"user": "app_user", "datname": "app", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 5},
+				{labels: labelMap{"user": "app_user", "datname": "app", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.4},
+				{labels: labelMap{"user": "app_user", "datname": "app", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 100},
+				{labels: labelMap{"user": "app_user", "datname": "app", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.1},
+				{labels: labelMap{"user": "app_user", "datname": "app", "queryid": "1500"}, metricType: dto.MetricType_COUNTER, value: 0.2},
+			}
+
+			convey.Convey("Metrics comparison with include filters", t, func() {
+				for _, expect := range expected {
+					m := readMetric(<-ch)
+					convey.So(expect, convey.ShouldResemble, m)
+				}
+			})
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("there were unfulfilled expectations: %s", err)
+			}
+		})
 	}
 }

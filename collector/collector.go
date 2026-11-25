@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,8 +31,35 @@ type StatStatementsConfig struct {
 	IncludeQuery     bool
 	QueryLength      uint
 	Limit            uint
+	IncludeDatabases []string
 	ExcludeDatabases []string
+	IncludeUsers     []string
 	ExcludeUsers     []string
+}
+
+func (c StatStatementsConfig) validate() error {
+	if err := validateNoOverlap(c.IncludeDatabases, c.ExcludeDatabases, statStatementsSubsystem, "include_databases", "exclude_databases"); err != nil {
+		return err
+	}
+	return validateNoOverlap(c.IncludeUsers, c.ExcludeUsers, statStatementsSubsystem, "include_users", "exclude_users")
+}
+
+type StatDatabaseConfig struct {
+	IncludeDatabases []string
+	ExcludeDatabases []string
+}
+
+func (c StatDatabaseConfig) validate() error {
+	return validateNoOverlap(c.IncludeDatabases, c.ExcludeDatabases, statDatabaseSubsystem, "include_databases", "exclude_databases")
+}
+
+type LocksConfig struct {
+	IncludeDatabases []string
+	ExcludeDatabases []string
+}
+
+func (c LocksConfig) validate() error {
+	return validateNoOverlap(c.IncludeDatabases, c.ExcludeDatabases, locksSubsystem, "include_databases", "exclude_databases")
 }
 
 var (
@@ -73,6 +101,8 @@ type collectorConfig struct {
 	excludeDatabases []string
 
 	statStatementsConfig *StatStatementsConfig
+	statDatabaseConfig   *StatDatabaseConfig
+	locksConfig          *LocksConfig
 }
 
 func registerCollector(name string, isDefaultEnabled bool, createFunc func(collectorConfig) (Collector, error)) {
@@ -93,6 +123,8 @@ type PostgresCollector struct {
 	CollectionTimeout time.Duration
 
 	statStatementsConfig *StatStatementsConfig
+	statDatabaseConfig   *StatDatabaseConfig
+	locksConfig          *LocksConfig
 }
 
 type Option func(*PostgresCollector) error
@@ -133,6 +165,8 @@ func NewPostgresCollector(logger *slog.Logger, excludeDatabases []string, dsn st
 			logger:               logger.With("collector", key),
 			excludeDatabases:     excludeDatabases,
 			statStatementsConfig: p.statStatementsConfig,
+			statDatabaseConfig:   p.statDatabaseConfig,
+			locksConfig:          p.locksConfig,
 		})
 		if err != nil {
 			return nil, err
@@ -171,9 +205,59 @@ func WithCollectionTimeout(s string) Option {
 
 func WithStatStatementsConfig(cfg StatStatementsConfig) Option {
 	return func(e *PostgresCollector) error {
+		if err := cfg.validate(); err != nil {
+			return err
+		}
 		e.statStatementsConfig = &cfg
 		return nil
 	}
+}
+
+func WithStatDatabaseConfig(cfg StatDatabaseConfig) Option {
+	return func(e *PostgresCollector) error {
+		if err := cfg.validate(); err != nil {
+			return err
+		}
+		e.statDatabaseConfig = &cfg
+		return nil
+	}
+}
+
+func WithLocksConfig(cfg LocksConfig) Option {
+	return func(e *PostgresCollector) error {
+		if err := cfg.validate(); err != nil {
+			return err
+		}
+		e.locksConfig = &cfg
+		return nil
+	}
+}
+
+func validateNoOverlap(include, exclude []string, collectorName, includeField, excludeField string) error {
+	if len(include) == 0 || len(exclude) == 0 {
+		return nil
+	}
+	excluded := make(map[string]struct{}, len(exclude))
+	for _, item := range exclude {
+		excluded[item] = struct{}{}
+	}
+	for _, item := range include {
+		if _, ok := excluded[item]; ok {
+			return fmt.Errorf("%s: %s and %s cannot both contain %q", collectorName, includeField, excludeField, item)
+		}
+	}
+	return nil
+}
+
+// splitList parses a comma-separated flag value, dropping empty entries.
+func splitList(s string) []string {
+	var items []string
+	for item := range strings.SplitSeq(s, ",") {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			items = append(items, trimmed)
+		}
+	}
+	return items
 }
 
 // Describe implements the prometheus.Collector interface.

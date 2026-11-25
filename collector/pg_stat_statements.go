@@ -18,7 +18,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/blang/semver/v4"
@@ -34,7 +33,9 @@ var (
 	includeQueryFlag      *bool   = nil
 	statementLengthFlag   *uint   = nil
 	statementLimitFlag    *uint   = nil
+	includedDatabasesFlag *string = nil
 	excludedDatabasesFlag *string = nil
+	includedUsersFlag     *string = nil
 	excludedUsersFlag     *string = nil
 )
 
@@ -59,9 +60,19 @@ func init() {
 		"Maximum number of statements to return.").
 		Default(defaultStatementLimit).
 		Uint()
+	includedDatabasesFlag = kingpin.Flag(
+		fmt.Sprint(collectorFlagPrefix, statStatementsSubsystem, ".include_databases"),
+		"Comma-separated list of database names to include. (default: all)").
+		Default("").
+		String()
 	excludedDatabasesFlag = kingpin.Flag(
 		fmt.Sprint(collectorFlagPrefix, statStatementsSubsystem, ".exclude_databases"),
 		"Comma-separated list of database names to exclude. (default: none)").
+		Default("").
+		String()
+	includedUsersFlag = kingpin.Flag(
+		fmt.Sprint(collectorFlagPrefix, statStatementsSubsystem, ".include_users"),
+		"Comma-separated list of user names to include. (default: all)").
 		Default("").
 		String()
 	excludedUsersFlag = kingpin.Flag(
@@ -76,49 +87,40 @@ type PGStatStatementsCollector struct {
 	includeQueryStatement bool
 	statementLength       uint
 	statementLimit        uint
+	includedDatabases     []string
 	excludedDatabases     []string
+	includedUsers         []string
 	excludedUsers         []string
 }
 
 func NewPGStatStatementsCollector(config collectorConfig) (Collector, error) {
 	// When config is provided, use it directly instead of global kingpin flags
-	if config.statStatementsConfig != nil {
-		return &PGStatStatementsCollector{
-			log:                   config.logger,
-			includeQueryStatement: config.statStatementsConfig.IncludeQuery,
-			statementLength:       config.statStatementsConfig.QueryLength,
-			statementLimit:        config.statStatementsConfig.Limit,
-			excludedDatabases:     config.statStatementsConfig.ExcludeDatabases,
-			excludedUsers:         config.statStatementsConfig.ExcludeUsers,
-		}, nil
-	}
-
-	// Fall back to kingpin CLI flags for standalone postgres_exporter binary usage.
-	var excludedDatabases []string
-	if *excludedDatabasesFlag != "" {
-		for db := range strings.SplitSeq(*excludedDatabasesFlag, ",") {
-			if trimmed := strings.TrimSpace(db); trimmed != "" {
-				excludedDatabases = append(excludedDatabases, trimmed)
-			}
+	cfg := config.statStatementsConfig
+	if cfg == nil {
+		// Fall back to kingpin CLI flags for standalone postgres_exporter binary usage.
+		cfg = &StatStatementsConfig{
+			IncludeQuery:     *includeQueryFlag,
+			QueryLength:      *statementLengthFlag,
+			Limit:            *statementLimitFlag,
+			IncludeDatabases: splitList(*includedDatabasesFlag),
+			ExcludeDatabases: splitList(*excludedDatabasesFlag),
+			IncludeUsers:     splitList(*includedUsersFlag),
+			ExcludeUsers:     splitList(*excludedUsersFlag),
 		}
-	}
-
-	var excludedUsers []string
-	if *excludedUsersFlag != "" {
-		for user := range strings.SplitSeq(*excludedUsersFlag, ",") {
-			if trimmed := strings.TrimSpace(user); trimmed != "" {
-				excludedUsers = append(excludedUsers, trimmed)
-			}
+		if err := cfg.validate(); err != nil {
+			return nil, err
 		}
 	}
 
 	return &PGStatStatementsCollector{
 		log:                   config.logger,
-		includeQueryStatement: *includeQueryFlag,
-		statementLength:       *statementLengthFlag,
-		statementLimit:        *statementLimitFlag,
-		excludedDatabases:     excludedDatabases,
-		excludedUsers:         excludedUsers,
+		includeQueryStatement: cfg.IncludeQuery,
+		statementLength:       cfg.QueryLength,
+		statementLimit:        cfg.Limit,
+		includedDatabases:     cfg.IncludeDatabases,
+		excludedDatabases:     cfg.ExcludeDatabases,
+		includedUsers:         cfg.IncludeUsers,
+		excludedUsers:         cfg.ExcludeUsers,
 	}, nil
 }
 
@@ -163,9 +165,7 @@ var (
 )
 
 const (
-	pgStatStatementQuerySelect      = `LEFT(pg_stat_statements.query, %d) as query,`
-	pgStatStatementExcludeDatabases = `AND pg_database.datname NOT IN (%s) `
-	pgStatStatementExcludeUsers     = `AND pg_get_userbyid(userid) NOT IN (%s) `
+	pgStatStatementQuerySelect = `LEFT(pg_stat_statements.query, %d) as query,`
 
 	pgStatStatementsQuery = `SELECT
 		pg_get_userbyid(userid) as user,
@@ -185,8 +185,9 @@ const (
 		SELECT percentile_cont(0.1)
 			WITHIN GROUP (ORDER BY total_time)
 			FROM pg_stat_statements
+			%s
 		)
-		%s %s
+		%s
 	ORDER BY seconds_total DESC
 	LIMIT %s;`
 
@@ -208,8 +209,9 @@ const (
 		SELECT percentile_cont(0.1)
 			WITHIN GROUP (ORDER BY total_exec_time)
 			FROM pg_stat_statements(false)
+			%s
 		)
-		%s %s
+		%s
 	ORDER BY seconds_total DESC
 	LIMIT %s;`
 
@@ -231,8 +233,9 @@ const (
 		SELECT percentile_cont(0.1)
 			WITHIN GROUP (ORDER BY total_exec_time)
 			FROM pg_stat_statements(false)
+			%s
 		)
-		%s %s
+		%s
 	ORDER BY seconds_total DESC
 	LIMIT %s;`
 )
@@ -242,8 +245,18 @@ func (c PGStatStatementsCollector) Update(ctx context.Context, instance *instanc
 	if c.includeQueryStatement {
 		querySelect = fmt.Sprintf(pgStatStatementQuerySelect, c.statementLength)
 	}
-	databaseFilter := c.buildExclusionClause(c.excludedDatabases, pgStatStatementExcludeDatabases)
-	userFilter := c.buildExclusionClause(c.excludedUsers, pgStatStatementExcludeUsers)
+	var filter sqlFilterBuilder
+	filter.addIncludeExclude("pg_database.datname", c.includedDatabases, c.excludedDatabases)
+	filter.addIncludeExclude("pg_get_userbyid(userid)", c.includedUsers, c.excludedUsers)
+	filterClause, args := filter.andClause()
+	// Apply the same filters to the percentile threshold subquery so excluded
+	// databases or users cannot skew the cutoff for the statements we keep.
+	// PostgreSQL allows reusing the same positional placeholders ($1, $2, ...),
+	// so args does not need to be duplicated.
+	thresholdFilter := ""
+	if where, _ := filter.whereClause(); where != "" {
+		thresholdFilter = "JOIN pg_database ON pg_database.oid = pg_stat_statements.dbid " + where
+	}
 	statementLimit := defaultStatementLimit
 	if c.statementLimit > 0 {
 		statementLimit = fmt.Sprintf("%d", c.statementLimit)
@@ -252,15 +265,15 @@ func (c PGStatStatementsCollector) Update(ctx context.Context, instance *instanc
 	var query string
 	switch {
 	case instance.version.GE(semver.MustParse("17.0.0")):
-		query = fmt.Sprintf(pgStatStatementsQuery_PG17, querySelect, c.includeQueryStatement, databaseFilter, userFilter, statementLimit)
+		query = fmt.Sprintf(pgStatStatementsQuery_PG17, querySelect, c.includeQueryStatement, thresholdFilter, filterClause, statementLimit)
 	case instance.version.GE(semver.MustParse("13.0.0")):
-		query = fmt.Sprintf(pgStatStatementsQuery_PG13, querySelect, c.includeQueryStatement, databaseFilter, userFilter, statementLimit)
+		query = fmt.Sprintf(pgStatStatementsQuery_PG13, querySelect, c.includeQueryStatement, thresholdFilter, filterClause, statementLimit)
 	default:
-		query = fmt.Sprintf(pgStatStatementsQuery, querySelect, databaseFilter, userFilter, statementLimit)
+		query = fmt.Sprintf(pgStatStatementsQuery, querySelect, thresholdFilter, filterClause, statementLimit)
 	}
 
 	db := instance.getDB()
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query, args...)
 
 	presentQueryIds := make(map[string]struct{})
 
@@ -383,17 +396,4 @@ func (c PGStatStatementsCollector) Update(ctx context.Context, instance *instanc
 		return err
 	}
 	return nil
-}
-
-func (c PGStatStatementsCollector) buildExclusionClause(identifiers []string, clauseTemplate string) string {
-	if len(identifiers) == 0 {
-		return ""
-	}
-
-	escaped := make([]string, 0, len(identifiers))
-	for _, identifier := range identifiers {
-		escaped = append(escaped, fmt.Sprintf("'%s'", strings.ReplaceAll(identifier, "'", "''")))
-	}
-
-	return fmt.Sprintf(clauseTemplate, strings.Join(escaped, ", "))
 }

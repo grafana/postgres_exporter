@@ -20,22 +20,58 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/alecthomas/kingpin/v2"
 	"github.com/blang/semver/v4"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 const statDatabaseSubsystem = "stat_database"
 
+var (
+	statDatabaseIncludedDatabasesFlag *string = nil
+	statDatabaseExcludedDatabasesFlag *string = nil
+)
+
 func init() {
 	registerCollector(statDatabaseSubsystem, defaultEnabled, NewPGStatDatabaseCollector)
+
+	statDatabaseIncludedDatabasesFlag = kingpin.Flag(
+		fmt.Sprint(collectorFlagPrefix, statDatabaseSubsystem, ".include_databases"),
+		"Comma-separated list of database names to include. (default: all)").
+		Default("").
+		String()
+	statDatabaseExcludedDatabasesFlag = kingpin.Flag(
+		fmt.Sprint(collectorFlagPrefix, statDatabaseSubsystem, ".exclude_databases"),
+		"Comma-separated list of database names to exclude. (default: none)").
+		Default("").
+		String()
 }
 
 type PGStatDatabaseCollector struct {
-	log *slog.Logger
+	log               *slog.Logger
+	includedDatabases []string
+	excludedDatabases []string
 }
 
 func NewPGStatDatabaseCollector(config collectorConfig) (Collector, error) {
-	return &PGStatDatabaseCollector{log: config.logger}, nil
+	// When config is provided, use it directly instead of global kingpin flags
+	cfg := config.statDatabaseConfig
+	if cfg == nil {
+		// Fall back to kingpin CLI flags for standalone postgres_exporter binary usage.
+		cfg = &StatDatabaseConfig{
+			IncludeDatabases: splitList(*statDatabaseIncludedDatabasesFlag),
+			ExcludeDatabases: splitList(*statDatabaseExcludedDatabasesFlag),
+		}
+		if err := cfg.validate(); err != nil {
+			return nil, err
+		}
+	}
+
+	return &PGStatDatabaseCollector{
+		log:               config.logger,
+		includedDatabases: cfg.IncludeDatabases,
+		excludedDatabases: cfg.ExcludeDatabases,
+	}, nil
 }
 
 var (
@@ -223,6 +259,16 @@ func statDatabaseQuery(columns []string) string {
 	return fmt.Sprintf("SELECT %s FROM pg_stat_database;", strings.Join(columns, ","))
 }
 
+func statDatabaseQueryWithFilters(columns, includedDatabases, excludedDatabases []string) (string, []any) {
+	var filter sqlFilterBuilder
+	filter.addIncludeExclude("datname", includedDatabases, excludedDatabases)
+	whereClause, args := filter.whereClause()
+	if whereClause == "" {
+		return statDatabaseQuery(columns), nil
+	}
+	return fmt.Sprintf("SELECT %s FROM pg_stat_database %s;", strings.Join(columns, ","), whereClause), args
+}
+
 func (c *PGStatDatabaseCollector) Update(ctx context.Context, instance *instance, ch chan<- prometheus.Metric) error {
 	db := instance.getDB()
 
@@ -253,9 +299,8 @@ func (c *PGStatDatabaseCollector) Update(ctx context.Context, instance *instance
 		columns = append(columns, "active_time")
 	}
 
-	rows, err := db.QueryContext(ctx,
-		statDatabaseQuery(columns),
-	)
+	query, args := statDatabaseQueryWithFilters(columns, c.includedDatabases, c.excludedDatabases)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
